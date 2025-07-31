@@ -1,0 +1,188 @@
+# Example Pipeline: Data Quality Validation and Cleaning
+# This pipeline demonstrates comprehensive data quality checks and automated cleaning
+
+name: "Enterprise Data Quality Pipeline"
+description: "Validate, clean, and prepare data with comprehensive quality checks"
+version: "1.0"
+
+# LLM configuration for intelligent analysis
+llm_config:
+  provider: "claude"
+  model: "claude-sonnet-4-20250514"
+  temperature: 0.1
+  use_extended_thinking: true
+
+# Pipeline steps
+steps:
+  # Step 1: Load data from source
+  - name: "load_data"
+    type: "connector"
+    config:
+      connector_type: "csv"
+      file_path: "data/customer_transactions.csv"
+      llm_enhanced: true  # Use LLM for schema inference
+    
+  # Step 2: Initial data profiling
+  - name: "initial_profile"
+    type: "data_profiling"
+    config:
+      include_correlations: true
+      include_distributions: true
+    depends_on: ["load_data"]
+    
+  # Step 3: Comprehensive quality validation
+  - name: "quality_check"
+    type: "quality_validation"
+    config:
+      # Expected schema
+      schema:
+        required_columns: ["customer_id", "transaction_date", "amount"]
+        column_types:
+          customer_id: "string"
+          transaction_date: "datetime"
+          amount: "float"
+          status: "string"
+      
+      # Business rules
+      business_rules:
+        - type: "range"
+          column: "amount"
+          min: 0
+          max: 100000
+        - type: "regex"
+          column: "customer_id"
+          pattern: "^CUST[0-9]{6}$"
+      
+      # Validation settings
+      deep_analysis: true         # Use LLM for semantic analysis
+      fail_on_critical: false     # Don't fail, just report
+      min_quality_score: 70.0
+      add_quality_column: true    # Add quality score to data
+    depends_on: ["initial_profile"]
+    
+  # Step 4: PII detection and masking
+  - name: "pii_check"
+    type: "pii_detection"
+    config:
+      action: "mask"  # mask, remove, or flag
+      mask_char: "X"
+      pii_types: ["ssn", "phone", "email", "credit_card", "ip_address"]
+    depends_on: ["quality_check"]
+    
+  # Step 5: Automated data cleaning
+  - name: "clean_data"
+    type: "data_cleaning"
+    config:
+      operations:
+        - "remove_duplicates"
+        - "strip_whitespace"
+        - "standardize_case"
+        - "handle_missing"
+        - "fix_types"
+        - "remove_outliers"
+      
+      # Case standardization
+      case_columns: ["status", "category", "region"]
+      case_type: "title"  # Title case for these columns
+      
+      # Missing value handling
+      missing_strategy: "fill"  # drop or fill
+      missing_threshold: 0.5    # Drop columns with >50% missing
+      critical_columns: ["customer_id", "transaction_date", "amount"]
+      fill_values:
+        status: "Unknown"
+        category: "Other"
+      
+      # Type conversions
+      type_conversions:
+        transaction_date: "datetime"
+        amount: "numeric"
+        quantity: "numeric"
+        is_premium: "boolean"
+      
+      # Outlier removal
+      outlier_method: "zscore"
+      outlier_threshold: 3
+    depends_on: ["pii_check"]
+    
+  # Step 6: Post-cleaning validation
+  - name: "final_validation"
+    type: "quality_validation"
+    config:
+      deep_analysis: false  # Quick validation
+      fail_on_critical: true
+      min_quality_score: 85.0  # Higher threshold after cleaning
+    depends_on: ["clean_data"]
+    
+  # Step 7: Final profiling
+  - name: "final_profile"
+    type: "data_profiling"
+    config:
+      include_correlations: true
+      include_distributions: false  # Skip for performance
+    depends_on: ["final_validation"]
+    
+  # Step 8: LLM enrichment based on quality insights
+  - name: "intelligent_enrichment"
+    type: "llm_process"
+    config:
+      type: "enrich"
+      enrichment_prompts:
+        - "Based on the data quality report, suggest derived features"
+        - "Identify potential data categorizations"
+        - "Recommend data transformations for ML readiness"
+    depends_on: ["final_profile"]
+    llm_config:
+      use_extended_thinking: true
+      temperature: 0.3
+
+# Optimization settings
+optimization:
+  enable_caching: true
+  cache_ttl: 3600
+  enable_parallelization: false  # Sequential for quality checks
+  enable_checkpointing: true
+  checkpoint_frequency: "after_each_step"
+
+# Error handling
+error_handling:
+  retry_failed_steps: true
+  max_retries: 2
+  retry_delay: 5
+  continue_on_error: false  # Stop on quality failures
+
+# Output configuration
+output:
+  format: "parquet"
+  compression: "snappy"
+  include_metadata: true
+  metadata_fields:
+    - "quality_score"
+    - "pii_detected"
+    - "cleaning_operations"
+    - "validation_passed"
+  quality_report_path: "reports/quality_report.json"
+
+# Notifications
+notifications:
+  on_quality_failure:
+    type: "email"
+    recipients: ["data-quality@company.com"]
+    include_report: true
+  
+  on_pii_detection:
+    type: "alert"
+    severity: "high"
+    message: "PII detected in dataset"
+
+# Example usage:
+# pipeline = PipelineExecutor()
+# result = await pipeline.execute(
+#     config=load_yaml("quality_validation_pipeline.yaml"),
+#     initial_data="path/to/raw_data.csv"
+# )
+# 
+# # Access quality metrics
+# quality_score = result.metadata["quality_score"]
+# quality_report = result.metadata["quality_report"]
+# cleaning_log = result.metadata["cleaning_operations"]

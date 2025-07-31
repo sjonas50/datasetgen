@@ -1,0 +1,91 @@
+{
+  "name": "Financial Report Table Extraction",
+  "description": "Extract all tables from financial PDF reports and combine into a unified dataset",
+  "version": "1.0",
+  
+  "llm_config": {
+    "provider": "claude",
+    "model": "claude-sonnet-4-20250514",
+    "use_vision": true
+  },
+  
+  "steps": [
+    {
+      "name": "extract_pdf_tables",
+      "type": "pdf_table_extract",
+      "config": {
+        "confidence_threshold": 0.9,
+        "combine_tables": false
+      }
+    },
+    {
+      "name": "standardize_tables",
+      "type": "transform",
+      "config": {
+        "type": "custom",
+        "code": "# Standardize column names and formats\nimport pandas as pd\n\n# Process each table\nstandardized_tables = []\nfor table in df:\n    # Standardize column names\n    table.columns = [col.lower().replace(' ', '_') for col in table.columns]\n    \n    # Convert date columns\n    for col in table.columns:\n        if 'date' in col:\n            table[col] = pd.to_datetime(table[col], errors='coerce')\n    \n    # Add source metadata\n    table['source_page'] = table.attrs.get('page_number', 0)\n    table['source_file'] = table.attrs.get('source_pdf', '')\n    \n    standardized_tables.append(table)\n\ndf = standardized_tables"
+      },
+      "depends_on": ["extract_pdf_tables"]
+    },
+    {
+      "name": "combine_tables",
+      "type": "transform",
+      "config": {
+        "type": "custom",
+        "code": "# Combine all tables into a single DataFrame\nimport pandas as pd\n\nif isinstance(df, list) and all(isinstance(t, pd.DataFrame) for t in df):\n    df = pd.concat(df, ignore_index=True)\nelse:\n    raise ValueError('Expected list of DataFrames')"
+      },
+      "depends_on": ["standardize_tables"]
+    },
+    {
+      "name": "quality_check",
+      "type": "validate",
+      "config": {
+        "rules": [
+          {
+            "type": "not_null",
+            "columns": ["source_file", "source_page"]
+          }
+        ],
+        "fail_on_error": false
+      },
+      "depends_on": ["combine_tables"]
+    },
+    {
+      "name": "enrich_with_llm",
+      "type": "llm_process",
+      "config": {
+        "type": "enrich",
+        "enrichment_prompts": [
+          "Identify the table type (balance sheet, income statement, cash flow, etc.)",
+          "Extract the reporting period from the data",
+          "Identify the currency used",
+          "Flag any unusual or potentially erroneous values"
+        ]
+      },
+      "depends_on": ["quality_check"],
+      "llm_config": {
+        "temperature": 0.1,
+        "use_extended_thinking": true
+      }
+    }
+  ],
+  
+  "optimization": {
+    "enable_caching": true,
+    "enable_parallelization": true,
+    "max_parallel_steps": 2
+  },
+  
+  "output": {
+    "format": "csv",
+    "include_metadata": true,
+    "metadata_fields": [
+      "source_file",
+      "source_page",
+      "extraction_confidence",
+      "table_type",
+      "reporting_period",
+      "currency"
+    ]
+  }
+}

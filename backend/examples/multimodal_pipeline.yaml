@@ -1,0 +1,141 @@
+# Example Multi-Modal Data Processing Pipeline
+# This pipeline demonstrates extracting and fusing data from multiple document types
+
+name: "Enterprise Document Processing Pipeline"
+description: "Extract and fuse data from PDFs, images, and structured files"
+version: "1.0"
+
+# LLM configuration for intelligent processing
+llm_config:
+  provider: "claude"
+  model: "claude-sonnet-4-20250514"
+  temperature: 0.1
+  use_vision: true
+  use_extended_thinking: true
+
+# Pipeline steps
+steps:
+  # Step 1: Parse all documents in input directory
+  - name: "parse_documents"
+    type: "document_parse"
+    config:
+      fusion_strategy: "hybrid"
+      extract_tables: true
+      extract_images: true
+      extract_text: true
+      extract_forms: true
+    
+  # Step 2: Extract tables from PDFs with high accuracy
+  - name: "pdf_table_extraction"
+    type: "pdf_table_extract"
+    config:
+      confidence_threshold: 0.85
+      combine_tables: false
+    depends_on: ["parse_documents"]
+    
+  # Step 3: Extract data from charts and dashboards
+  - name: "image_analysis"
+    type: "image_data_extract"
+    config:
+      analysis_type: "auto"  # Auto-detect chart vs table vs dashboard
+    depends_on: ["parse_documents"]
+    
+  # Step 4: Quality check on extracted data
+  - name: "quality_validation"
+    type: "document_quality_check"
+    config:
+      quality_threshold: 0.75
+      fail_on_low_quality: false
+    depends_on: ["pdf_table_extraction", "image_analysis"]
+    
+  # Step 5: Fuse all extracted data intelligently
+  - name: "data_fusion"
+    type: "multimodal_fusion"
+    config:
+      fusion_strategy: "hierarchical"
+      target_schema:
+        columns:
+          - name: "entity_id"
+            type: "string"
+            description: "Unique identifier across all sources"
+          - name: "timestamp"
+            type: "datetime"
+            description: "Transaction or event timestamp"
+          - name: "amount"
+            type: "float"
+            description: "Monetary amount"
+          - name: "category"
+            type: "string"
+            description: "Classification category"
+          - name: "source_document"
+            type: "string"
+            description: "Original document reference"
+    depends_on: ["quality_validation"]
+    
+  # Step 6: Validate fused data
+  - name: "final_validation"
+    type: "validate"
+    config:
+      rules:
+        - type: "not_null"
+          columns: ["entity_id", "timestamp"]
+        - type: "unique"
+          columns: ["entity_id"]
+        - type: "range"
+          column: "amount"
+          min: 0
+          max: 1000000
+      fail_on_error: true
+    depends_on: ["data_fusion"]
+    
+  # Step 7: LLM-based enrichment
+  - name: "intelligent_enrichment"
+    type: "llm_process"
+    config:
+      type: "enrich"
+      enrichment_prompts:
+        - "Identify potential data quality issues"
+        - "Suggest additional derived features"
+        - "Detect anomalies or outliers"
+        - "Recommend data transformations"
+    depends_on: ["final_validation"]
+    llm_config:
+      use_extended_thinking: true
+      max_thinking_steps: 10
+
+# Optimization hints
+optimization:
+  enable_caching: true
+  cache_ttl: 3600  # 1 hour
+  enable_parallelization: true
+  max_parallel_steps: 4
+  enable_llm_optimization: true
+  llm_batch_size: 10
+
+# Error handling
+error_handling:
+  retry_failed_steps: true
+  max_retries: 3
+  retry_delay: 5  # seconds
+  save_checkpoints: true
+  checkpoint_frequency: "after_each_step"
+
+# Output configuration
+output:
+  format: "parquet"  # Efficient columnar format
+  compression: "snappy"
+  partition_by: ["category", "source_document"]
+  include_metadata: true
+  include_quality_report: true
+
+# Example usage:
+# pipeline = PipelineExecutor()
+# result = await pipeline.execute(
+#     config=load_yaml("multimodal_pipeline.yaml"),
+#     initial_data=[
+#         "reports/Q1_financial.pdf",
+#         "dashboards/revenue_dashboard.png",
+#         "data/transactions.csv",
+#         "forms/customer_intake.pdf"
+#     ]
+# )

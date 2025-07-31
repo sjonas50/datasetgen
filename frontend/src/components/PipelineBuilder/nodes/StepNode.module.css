@@ -1,0 +1,127 @@
+.stepNode {
+  min-width: 180px;
+  background: #fff;
+  border: 2px solid #d9d9d9;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.stepNode:hover {
+  border-color: #1890ff;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.stepNode.selected {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 4px rgba(24, 144, 255, 0.2);
+}
+
+.content {
+  padding: 12px;
+  text-align: center;
+}
+
+.icon {
+  font-size: 24px;
+  margin-bottom: 8px;
+  position: relative;
+}
+
+.label {
+  font-weight: 500;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: #262626;
+}
+
+.tags {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.handle {
+  width: 10px;
+  height: 10px;
+  background: #1890ff;
+  border: 2px solid #fff;
+}
+
+/* Node type specific styles */
+.connectorNode {
+  border-color: #52c41a;
+}
+
+.connectorNode:hover {
+  border-color: #73d13d;
+}
+
+.connectorNode.selected {
+  border-color: #52c41a;
+  box-shadow: 0 0 0 4px rgba(82, 196, 26, 0.2);
+}
+
+.transformNode {
+  border-color: #1890ff;
+}
+
+.llmNode {
+  border-color: #722ed1;
+}
+
+.llmNode:hover {
+  border-color: #9254de;
+}
+
+.llmNode.selected {
+  border-color: #722ed1;
+  box-shadow: 0 0 0 4px rgba(114, 46, 209, 0.2);
+}
+
+.multimodalNode {
+  border-color: #fa8c16;
+}
+
+.multimodalNode:hover {
+  border-color: #ffa940;
+}
+
+.multimodalNode.selected {
+  border-color: #fa8c16;
+  box-shadow: 0 0 0 4px rgba(250, 140, 22, 0.2);
+}
+
+.validateNode {
+  border-color: #52c41a;
+}
+
+/* Status styles */
+.status-running {
+  border-color: #1890ff !important;
+  animation: pulse 2s infinite;
+}
+
+.status-completed {
+  border-color: #52c41a !important;
+  background-color: #f6ffed;
+}
+
+.status-failed {
+  border-color: #ff4d4f !important;
+  background-color: #fff2f0;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(24, 144, 255, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(24, 144, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(24, 144, 255, 0);
+  }
+}

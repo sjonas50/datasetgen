@@ -1,0 +1,11 @@
+.configPanel {
+  padding: 16px;
+}
+
+.configPanel :global(.ant-form-item) {
+  margin-bottom: 16px;
+}
+
+.configPanel :global(.ant-divider) {
+  margin: 16px 0;
+}

@@ -1,0 +1,40 @@
+.stepLibrary {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.stepCard {
+  border: 1px solid #e8e8e8;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.stepCard:hover {
+  border-color: #1890ff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+.stepCardContent {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.stepIcon {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.stepInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.stepDescription {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+}
