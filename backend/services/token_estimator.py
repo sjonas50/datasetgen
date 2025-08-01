@@ -178,23 +178,10 @@ class TokenEstimator:
         
         if self.client:
             try:
-                # Use Anthropic's official token counting API
-                response = await self.client.messages.count_tokens(
-                    model=model,
-                    messages=[{
-                        "role": "user",
-                        "content": text
-                    }]
-                )
-                
-                token_count = response.input_tokens
-                
-                # Cache the result
-                self._token_cache[cache_key] = token_count
-                self._cache_expiry[cache_key] = datetime.utcnow() + timedelta(hours=1)
-                
-                return token_count
-                
+                # Note: Anthropic's count_tokens method is not available in current SDK version
+                # Using estimation based on character count for now
+                # In future versions, use: response = await self.client.messages.count_tokens(...)
+                pass
             except Exception as e:
                 print(f"[TokenEstimator] Error counting tokens: {e}")
                 # Fall back to estimation

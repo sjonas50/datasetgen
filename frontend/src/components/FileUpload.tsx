@@ -23,6 +23,7 @@ interface FileUploadProps {
 export default function FileUpload({ onFilesUploaded, multiple = true }: FileUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
+  const [fileList, setFileList] = useState<any[]>([]);
 
   const getFileIcon = (fileType: string) => {
     if (fileType?.includes('pdf')) return <FilePdfOutlined style={{ fontSize: 48, color: '#ff4d4f' }} />;
@@ -60,12 +61,14 @@ export default function FileUpload({ onFilesUploaded, multiple = true }: FileUpl
         });
 
         const uploadedFile = response.data;
-        setUploadedFiles(prev => [...prev, uploadedFile]);
+        const newUploadedFiles = [...uploadedFiles, uploadedFile];
+        setUploadedFiles(newUploadedFiles);
         onSuccess?.(uploadedFile);
         message.success(`${(file as any).name} uploaded successfully`);
         
+        // Call the callback with the updated array
         if (onFilesUploaded) {
-          onFilesUploaded([...uploadedFiles, uploadedFile]);
+          onFilesUploaded(newUploadedFiles);
         }
       } catch (error: any) {
         console.error('File upload error:', error);

@@ -168,6 +168,11 @@ class DatasetGenerator:
         # Check if this is a scanned document placeholder
         is_scanned = "scanned PDF document" in content_sample or "Scanned/Image-based PDF" in content_sample
         
+        # Count documents if we have source file info
+        num_docs = len(data) if 'source_file' in data.columns else 1
+        if num_docs > 1:
+            print(f"[DatasetGenerator] Building Q&A prompt for {num_docs} documents")
+        
         if is_scanned:
             prompt = f"""Generate a comprehensive question-answer training dataset based on this document description.
 
@@ -455,25 +460,47 @@ Generate at least {config.get('min_examples', 20)} examples."""
         """Get a representative sample of content from the DataFrame"""
         
         print(f"[DatasetGenerator] Getting content sample from columns: {list(data.columns)}")
+        print(f"[DatasetGenerator] DataFrame has {len(data)} rows")
         
         # Try to get text content
         text_columns = ['enhanced_content', 'text_content', 'content', 'text']
         
+        all_documents = []
+        source_files = []
+        
+        # Check if we have source file information
+        if 'source_file' in data.columns or 'source_files' in data.columns:
+            source_col = 'source_file' if 'source_file' in data.columns else 'source_files'
+            source_files = data[source_col].dropna().unique().tolist()
+            print(f"[DatasetGenerator] Processing {len(source_files)} source files")
+        
         for col in text_columns:
             if col in data.columns:
                 print(f"[DatasetGenerator] Found text column: {col}")
-                # Get non-empty values
-                non_empty = data[col].dropna().astype(str)
-                non_empty = non_empty[non_empty.str.strip() != '']
+                # Process each row separately to maintain document boundaries
+                for idx, row in data.iterrows():
+                    content = str(row[col]) if pd.notna(row[col]) else ""
+                    if content.strip():
+                        # Add document marker if we have multiple documents
+                        if len(data) > 1 and 'source_file' in row:
+                            doc_marker = f"\n\n--- Document: {row.get('source_file', f'Document {idx+1}')} ---\n\n"
+                            all_documents.append(doc_marker + content)
+                        else:
+                            all_documents.append(content)
                 
-                if not non_empty.empty:
-                    # Concatenate all non-empty text
-                    all_text = '\n\n'.join(non_empty.tolist())
-                    print(f"[DatasetGenerator] Content sample length: {len(all_text)} characters")
+                if all_documents:
+                    # Join all documents
+                    all_text = '\n\n'.join(all_documents)
+                    print(f"[DatasetGenerator] Combined {len(all_documents)} documents, total length: {len(all_text)} characters")
                     
-                    # If content is too short, return all of it
-                    if len(all_text) < 100:
-                        print(f"[DatasetGenerator] Warning: Very short content detected")
+                    # Add summary if multiple documents
+                    if len(all_documents) > 1:
+                        summary = f"Processing {len(all_documents)} documents"
+                        if source_files:
+                            summary += f": {', '.join(str(f) for f in source_files[:3])}"
+                            if len(source_files) > 3:
+                                summary += f" and {len(source_files) - 3} more"
+                        print(f"[DatasetGenerator] {summary}")
                     
                     return all_text[:max_chars] + ('...' if len(all_text) > max_chars else '')
         
