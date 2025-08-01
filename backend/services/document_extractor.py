@@ -11,7 +11,16 @@ import PyPDF2
 # import fitz  # PyMuPDF for better PDF handling - not available in current environment
 from PIL import Image
 import io
-import docx
+try:
+    import docx
+except ImportError:
+    # Try alternative import
+    try:
+        from docx import Document
+        docx = type('docx', (), {'Document': Document})()
+    except ImportError:
+        print("[DocumentExtractor] python-docx not available - Word document support disabled")
+        docx = None
 try:
     from pdf2image import convert_from_path
     PDF2IMAGE_AVAILABLE = True
@@ -204,6 +213,11 @@ Type: Scanned/Image-based PDF requiring OCR for full text extraction"""
         }
         
         try:
+            if docx is None:
+                return {
+                    "text_content": "",
+                    "error": "python-docx not available"
+                }
             doc = docx.Document(str(file_path))
             
             # Extract metadata

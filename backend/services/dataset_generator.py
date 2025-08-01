@@ -483,42 +483,75 @@ Generate at least {config.get('min_examples', 20)} examples."""
         
         all_documents = []
         source_files = []
+        doc_metadata = []
         
-        # Check if we have source file information
-        if 'source_file' in data.columns or 'source_files' in data.columns:
+        # Check if we have document metadata
+        if 'document_id' in data.columns:
+            # New document pipeline format
+            unique_docs = data['document_id'].unique()
+            print(f"[DatasetGenerator] Processing {len(unique_docs)} documents from new pipeline")
+            
+            for doc_id in unique_docs:
+                doc_data = data[data['document_id'] == doc_id]
+                
+                # Get content for this document
+                for col in text_columns:
+                    if col in doc_data.columns:
+                        content_parts = []
+                        for _, row in doc_data.iterrows():
+                            content = str(row[col]) if pd.notna(row[col]) else ""
+                            if content.strip():
+                                content_parts.append(content)
+                        
+                        if content_parts:
+                            doc_content = '\n'.join(content_parts)
+                            filename = doc_data.iloc[0].get('filename', f'Document {doc_id}')
+                            doc_marker = f"\n\n=== {filename} ===\n\n"
+                            all_documents.append(doc_marker + doc_content)
+                            source_files.append(filename)
+                            break
+        
+        # Check if we have source file information (legacy format)
+        elif 'source_file' in data.columns or 'source_files' in data.columns:
             source_col = 'source_file' if 'source_file' in data.columns else 'source_files'
             source_files = data[source_col].dropna().unique().tolist()
-            print(f"[DatasetGenerator] Processing {len(source_files)} source files")
+            print(f"[DatasetGenerator] Processing {len(source_files)} source files (legacy format)")
         
-        for col in text_columns:
-            if col in data.columns:
-                print(f"[DatasetGenerator] Found text column: {col}")
-                # Process each row separately to maintain document boundaries
-                for idx, row in data.iterrows():
-                    content = str(row[col]) if pd.notna(row[col]) else ""
-                    if content.strip():
-                        # Add document marker if we have multiple documents
-                        if len(data) > 1 and 'source_file' in row:
-                            doc_marker = f"\n\n--- Document: {row.get('source_file', f'Document {idx+1}')} ---\n\n"
-                            all_documents.append(doc_marker + content)
-                        else:
-                            all_documents.append(content)
-                
-                if all_documents:
-                    # Join all documents
-                    all_text = '\n\n'.join(all_documents)
-                    print(f"[DatasetGenerator] Combined {len(all_documents)} documents, total length: {len(all_text)} characters")
+        # If no documents collected yet, use legacy method
+        if not all_documents:
+            for col in text_columns:
+                if col in data.columns:
+                    print(f"[DatasetGenerator] Found text column: {col}")
+                    # Process each row separately to maintain document boundaries
+                    for idx, row in data.iterrows():
+                        content = str(row[col]) if pd.notna(row[col]) else ""
+                        if content.strip():
+                            # Add document marker if we have multiple documents
+                            if len(data) > 1 and ('source_file' in row or 'filename' in row):
+                                doc_name = row.get('filename', row.get('source_file', f'Document {idx+1}'))
+                                doc_marker = f"\n\n--- Document: {doc_name} ---\n\n"
+                                all_documents.append(doc_marker + content)
+                            else:
+                                all_documents.append(content)
                     
-                    # Add summary if multiple documents
-                    if len(all_documents) > 1:
-                        summary = f"Processing {len(all_documents)} documents"
-                        if source_files:
-                            summary += f": {', '.join(str(f) for f in source_files[:3])}"
-                            if len(source_files) > 3:
-                                summary += f" and {len(source_files) - 3} more"
-                        print(f"[DatasetGenerator] {summary}")
-                    
-                    return all_text[:max_chars] + ('...' if len(all_text) > max_chars else '')
+                    if all_documents:
+                        break
+        
+        if all_documents:
+            # Join all documents
+            all_text = '\n\n'.join(all_documents)
+            print(f"[DatasetGenerator] Combined {len(all_documents)} documents, total length: {len(all_text)} characters")
+            
+            # Add summary if multiple documents
+            if len(all_documents) > 1:
+                summary = f"Processing {len(all_documents)} documents"
+                if source_files:
+                    summary += f": {', '.join(str(f) for f in source_files[:3])}"
+                    if len(source_files) > 3:
+                        summary += f" and {len(source_files) - 3} more"
+                print(f"[DatasetGenerator] {summary}")
+            
+            return all_text[:max_chars] + ('...' if len(all_text) > max_chars else '')
         
         # Fallback: convert entire dataframe to string
         return str(data.to_dict('records'))[:max_chars]

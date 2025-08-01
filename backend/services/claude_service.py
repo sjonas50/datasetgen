@@ -1,6 +1,7 @@
 """
-Claude Sonnet 4 Integration Service
-Provides intelligent data processing capabilities using Claude's latest model
+Claude 4 Integration Service
+Provides intelligent data processing capabilities using Claude's latest models (July 2025)
+Supports both Sonnet 4 and Opus 4 with enhanced vision and document processing
 """
 
 import os
@@ -18,9 +19,17 @@ import anthropic
 from anthropic import AsyncAnthropic
 
 class ClaudeService:
-    """Service for interacting with Claude Sonnet 4 API"""
+    """Service for interacting with Claude 4 models (Sonnet & Opus)
     
-    def __init__(self):
+    Features:
+    - Native PDF processing without conversion
+    - Enhanced vision capabilities for charts, diagrams, and tables
+    - Extended thinking mode for complex reasoning
+    - Tool use during processing
+    - Support for up to 64K output tokens (Sonnet 4)
+    """
+    
+    def __init__(self, model_type="sonnet"):
         self.api_key = os.getenv("ANTHROPIC_API_KEY")
         self.enabled = bool(self.api_key)
         
@@ -28,10 +37,22 @@ class ClaudeService:
         
         if self.enabled:
             self.client = AsyncAnthropic(api_key=self.api_key)
-            self.model = "claude-sonnet-4-20250514"  # Claude Sonnet 4 - Latest model
-            self.max_tokens = 8192
+            
+            # Claude 4 models (July 2025)
+            if model_type == "opus":
+                self.model = "claude-opus-4-20250730"  # Claude Opus 4 - For complex tasks
+                self.max_tokens = 8192
+                self.supports_extended_thinking = True
+            else:
+                self.model = "claude-sonnet-4-20250730"  # Claude Sonnet 4 - Default
+                self.max_tokens = 64000  # Sonnet 4 supports up to 64K output tokens
+                self.supports_extended_thinking = True
+            
             print(f"[ClaudeService] Client initialized with model: {self.model}")
             self.temperature = 0.1  # Low temperature for consistent results
+            self.supports_vision = True  # Both models support enhanced vision
+            self.supports_pdf_native = True  # Native PDF processing
+            self.supports_tool_use = True  # Tool use during extended thinking
         else:
             print("Warning: ANTHROPIC_API_KEY not set. AI features will be disabled.")
             self.client = None
