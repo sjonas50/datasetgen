@@ -18,40 +18,40 @@ import hashlib
 class TokenEstimator:
     """Estimate tokens and costs for dataset generation"""
     
-    # Pricing as of May 2025
+    # Custom pricing for dataset generation
     PRICING = {
         "claude-sonnet-4-20250514": {
-            "input": 3.0 / 1_000_000,   # $3 per million input tokens
-            "output": 15.0 / 1_000_000,  # $15 per million output tokens
+            "input": 200.0 / 1_000_000,   # $200 per million input tokens
+            "output": 500.0 / 1_000_000,  # $500 per million output tokens
             "name": "Claude Sonnet 4",
             "max_output_tokens": 8192,
             "supports_vision": True
         },
         "claude-opus-4-20250514": {
-            "input": 15.0 / 1_000_000,   # $15 per million input tokens  
-            "output": 75.0 / 1_000_000,  # $75 per million output tokens
+            "input": 200.0 / 1_000_000,   # $200 per million input tokens  
+            "output": 500.0 / 1_000_000,  # $500 per million output tokens
             "name": "Claude Opus 4",
             "max_output_tokens": 8192,
             "supports_vision": True
         }
     }
     
-    # Average tokens per row for different dataset types
+    # Average tokens per row for different dataset types (more realistic)
     TOKENS_PER_ROW = {
-        "qa_pairs": 150,
-        "classification": 50,
-        "ner": 100,
-        "summarization": 200,
-        "custom": 100,  # Default estimate
+        "qa_pairs": 250,  # Q&A pairs are typically longer
+        "classification": 80,   # Text + label
+        "ner": 150,  # Sentence + multiple entity annotations
+        "summarization": 350,  # Text passage + summary
+        "custom": 200,  # Default estimate for custom formats
     }
     
     # Prompt overhead tokens (system prompts, formatting, etc.)
     PROMPT_OVERHEAD = {
-        "qa_pairs": 500,
-        "classification": 400,
-        "ner": 600,
-        "summarization": 450,
-        "custom": 300,
+        "qa_pairs": 1200,  # Detailed instructions for Q&A generation
+        "classification": 800,  # Category definitions and examples
+        "ner": 1000,  # Entity type definitions and format specs
+        "summarization": 900,  # Length requirements and examples
+        "custom": 1500,  # User instructions plus format inference
     }
     
     def __init__(self):
@@ -91,6 +91,7 @@ class TokenEstimator:
             Dictionary with token counts, costs, and recommendations
         """
         print(f"[TokenEstimator] Estimating for {dataset_type} dataset")
+        print(f"[TokenEstimator] Content length: {len(content)} characters")
         
         # Count input tokens
         input_tokens = await self._count_tokens(content, model)
@@ -105,8 +106,9 @@ class TokenEstimator:
         
         # Estimate output tokens
         if target_rows is None:
-            # Auto-estimate rows based on content size
-            target_rows = self._estimate_rows(input_tokens, dataset_type)
+            # Auto-estimate rows based on content size - use character count for better accuracy
+            content_chars = len(content)
+            target_rows = self._estimate_rows_from_chars(content_chars, dataset_type)
         
         tokens_per_row = self.TOKENS_PER_ROW.get(dataset_type, 100)
         estimated_output_tokens = target_rows * tokens_per_row
@@ -194,26 +196,113 @@ class TokenEstimator:
         estimated_tokens = len(text) // 4
         return estimated_tokens
     
+    def _estimate_rows_from_chars(self, content_chars: int, dataset_type: str) -> int:
+        """
+        Estimate optimal number of rows based on content character count
+        This matches the logic in dataset_generator.py for consistency
+        """
+        print(f"[TokenEstimator] Estimating rows from {content_chars} characters")
+        
+        if dataset_type == "qa_pairs":
+            # 1 Q&A pair per 100-150 characters (matching dataset_generator.py)
+            if content_chars > 10000:
+                estimated = max(100, content_chars // 150)
+            elif content_chars > 5000:
+                estimated = max(50, content_chars // 120)
+            elif content_chars > 2000:
+                estimated = max(30, content_chars // 100)
+            else:
+                estimated = max(20, content_chars // 80)
+            # Cap at reasonable maximum
+            return min(estimated, 5000)
+            
+        elif dataset_type == "classification":
+            # More examples possible - roughly 1 per 80-120 chars
+            if content_chars > 10000:
+                estimated = max(150, content_chars // 120)
+            elif content_chars > 5000:
+                estimated = max(80, content_chars // 100)
+            else:
+                estimated = max(30, content_chars // 80)
+            return min(estimated, 5000)
+            
+        elif dataset_type == "ner":
+            # NER needs sentences with entities - 1 per 150-200 chars
+            if content_chars > 10000:
+                estimated = max(80, content_chars // 200)
+            elif content_chars > 5000:
+                estimated = max(50, content_chars // 180)
+            else:
+                estimated = max(20, content_chars // 150)
+            return min(estimated, 2000)
+            
+        elif dataset_type == "summarization":
+            # Summarization needs longer chunks - 1 per 300-500 chars
+            if content_chars > 10000:
+                estimated = max(30, content_chars // 500)
+            elif content_chars > 5000:
+                estimated = max(20, content_chars // 400)
+            else:
+                estimated = max(10, content_chars // 300)
+            return min(estimated, 1000)
+            
+        else:
+            # Custom/default - use moderate scaling
+            if content_chars > 10000:
+                estimated = max(80, content_chars // 150)
+            elif content_chars > 5000:
+                estimated = max(50, content_chars // 130)
+            else:
+                estimated = max(20, content_chars // 100)
+            return min(estimated, 3000)
+    
     def _estimate_rows(self, content_tokens: int, dataset_type: str) -> int:
         """
         Estimate optimal number of rows based on content size
+        More realistic estimation based on content density
         """
-        # Base estimation on content density
+        # Base estimation on content density - much more aggressive scaling
         if dataset_type == "qa_pairs":
-            # Roughly 1 Q&A pair per 200-300 tokens of content
-            return min(max(content_tokens // 250, 10), 100)
+            # Roughly 1 Q&A pair per 50-100 tokens of content
+            # For a typical document, this generates many more pairs
+            if content_tokens > 10000:
+                return min(max(content_tokens // 100, 100), 2000)
+            elif content_tokens > 5000:
+                return min(max(content_tokens // 80, 50), 1000)
+            else:
+                return min(max(content_tokens // 50, 20), 500)
         elif dataset_type == "classification":
             # More examples possible from same content
-            return min(max(content_tokens // 150, 15), 150)
+            if content_tokens > 10000:
+                return min(max(content_tokens // 75, 150), 3000)
+            elif content_tokens > 5000:
+                return min(max(content_tokens // 60, 100), 1500)
+            else:
+                return min(max(content_tokens // 40, 30), 750)
         elif dataset_type == "ner":
             # NER depends on entity density
-            return min(max(content_tokens // 200, 10), 80)
+            if content_tokens > 10000:
+                return min(max(content_tokens // 150, 80), 1000)
+            elif content_tokens > 5000:
+                return min(max(content_tokens // 120, 50), 500)
+            else:
+                return min(max(content_tokens // 80, 20), 250)
         elif dataset_type == "summarization":
             # Fewer but longer examples
-            return min(max(content_tokens // 500, 5), 50)
+            if content_tokens > 10000:
+                return min(max(content_tokens // 300, 30), 500)
+            elif content_tokens > 5000:
+                return min(max(content_tokens // 250, 20), 250)
+            else:
+                return min(max(content_tokens // 200, 10), 125)
         else:
             # Default estimation
-            return min(max(content_tokens // 200, 10), 100)
+            if content_tokens > 10000:
+                return min(max(content_tokens // 120, 80), 1500)
+            elif content_tokens > 5000:
+                return min(max(content_tokens // 100, 50), 750)
+            else:
+                return min(max(content_tokens // 80, 20), 400)
     
     def _estimate_processing_time(self, input_tokens: int, output_tokens: int) -> int:
         """
