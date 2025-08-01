@@ -295,6 +295,27 @@ class SQLiteDB:
         conn.close()
         return datasets
     
+    def delete_dataset(self, dataset_id: str, owner_id: str) -> bool:
+        """Delete a dataset and all associated files links"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        # First check if dataset exists and belongs to the user
+        cursor.execute('SELECT id FROM datasets WHERE id = ? AND owner_id = ?', (dataset_id, owner_id))
+        if not cursor.fetchone():
+            conn.close()
+            return False
+        
+        # Delete dataset-file associations
+        cursor.execute('DELETE FROM dataset_files WHERE dataset_id = ?', (dataset_id,))
+        
+        # Delete the dataset
+        cursor.execute('DELETE FROM datasets WHERE id = ?', (dataset_id,))
+        
+        conn.commit()
+        conn.close()
+        return True
+    
     # Pipeline operations
     def create_pipeline(self, pipeline_data: Dict[str, Any]) -> Dict[str, Any]:
         conn = self.get_connection()
