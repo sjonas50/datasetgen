@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test File Upload</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <h1>Test File Upload</h1>
+    <input type="file" id="fileInput" />
+    <button onclick="testUpload()">Upload</button>
+    <div id="result"></div>
+
+    <script>
+        // Configure axios
+        const api = axios.create({
+            baseURL: 'http://localhost:8000',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+
+        // Add auth interceptor
+        api.interceptors.request.use((config) => {
+            const token = localStorage.getItem('auth_token');
+            if (token) {
+                config.headers.Authorization = `Bearer ${token}`;
+            }
+            
+            // Don't set Content-Type for FormData
+            if (config.data instanceof FormData) {
+                delete config.headers['Content-Type'];
+            }
+            
+            return config;
+        });
+
+        async function login() {
+            const formData = new FormData();
+            formData.append('username', 'testuser');
+            formData.append('password', 'password123');
+            
+            try {
+                const response = await api.post('/api/v1/auth/login', formData);
+                localStorage.setItem('auth_token', response.data.access_token);
+                document.getElementById('result').innerHTML = 'Login successful!';
+                return true;
+            } catch (error) {
+                console.error('Login failed:', error);
+                document.getElementById('result').innerHTML = 'Login failed: ' + error.message;
+                return false;
+            }
+        }
+
+        async function testUpload() {
+            // First ensure we're logged in
+            if (!localStorage.getItem('auth_token')) {
+                await login();
+            }
+
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a file');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                console.log('Uploading file:', file.name);
+                console.log('Auth token:', localStorage.getItem('auth_token'));
+                
+                const response = await api.post('/api/v1/files/upload', formData, {
+                    onUploadProgress: (progressEvent) => {
+                        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                        document.getElementById('result').innerHTML = `Upload progress: ${percentCompleted}%`;
+                    }
+                });
+
+                console.log('Upload response:', response.data);
+                document.getElementById('result').innerHTML = `
+                    <h3>Upload Successful!</h3>
+                    <pre>${JSON.stringify(response.data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                console.error('Upload failed:', error);
+                console.error('Response:', error.response);
+                document.getElementById('result').innerHTML = `
+                    <h3>Upload Failed!</h3>
+                    <p>Error: ${error.message}</p>
+                    <p>Details: ${error.response?.data?.detail || 'Unknown error'}</p>
+                `;
+            }
+        }
+
+        // Auto-login on page load
+        window.onload = () => {
+            if (!localStorage.getItem('auth_token')) {
+                login();
+            }
+        };
+    </script>
+</body>
+</html>
