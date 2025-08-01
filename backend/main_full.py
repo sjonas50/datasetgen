@@ -689,6 +689,89 @@ async def analyze_dataset_pipeline(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
+@app.post("/api/v1/datasets/{dataset_id}/estimate-cost")
+async def estimate_dataset_cost(
+    dataset_id: str,
+    request: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Estimate cost for dataset generation"""
+    from services.token_estimator import token_estimator
+    
+    # Get dataset from SQLite
+    datasets = db.get_datasets_by_owner(current_user["id"])
+    dataset = next((d for d in datasets if d["id"] == dataset_id), None)
+    
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    
+    try:
+        # Extract parameters
+        dataset_type = request.get("dataset_type", "qa_pairs")
+        target_rows = request.get("target_rows")
+        custom_instructions = request.get("custom_instructions")
+        processing_strategy = request.get("processing_strategy", "auto")
+        
+        # Get all file contents
+        all_content = []
+        documents = []
+        
+        for file_info in dataset.get("files", []):
+            file_path = Path(file_info["file_path"])
+            
+            if file_path.exists():
+                # Extract content based on file type
+                if file_info["file_type"] in ["text/plain", "text/markdown"]:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                elif file_info["file_type"] == "application/pdf":
+                    # For PDFs, use document extractor
+                    extraction_result = await document_extractor.extract_from_pdf(file_path, {"use_ai_extraction": False})
+                    content = extraction_result.get("text_content", "") or extraction_result.get("enhanced_content", "")
+                elif file_info["file_type"] in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
+                    # For Word docs
+                    extraction_result = await document_extractor.extract_from_docx(file_path)
+                    content = extraction_result.get("text_content", "")
+                else:
+                    # For CSV/JSON, just read as text for token counting
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                
+                all_content.append(content)
+                documents.append({
+                    "filename": file_info["filename"],
+                    "content": content,
+                    "file_type": file_info["file_type"]
+                })
+        
+        # Combine all content
+        combined_content = "\n\n---\n\n".join(all_content)
+        
+        # Estimate cost
+        if len(documents) > 1:
+            # Multi-document estimation
+            cost_estimate = await token_estimator.estimate_multi_document_cost(
+                documents,
+                dataset_type,
+                processing_strategy
+            )
+        else:
+            # Single document estimation
+            cost_estimate = await token_estimator.estimate_cost(
+                combined_content,
+                dataset_type,
+                target_rows,
+                custom_instructions
+            )
+        
+        return cost_estimate
+        
+    except Exception as e:
+        print(f"Error estimating cost: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Cost estimation failed: {str(e)}")
+
 # Pipeline endpoints
 @app.get("/api/v1/pipelines", response_model=List[PipelineResponse])
 async def list_pipelines(

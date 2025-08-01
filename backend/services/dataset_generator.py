@@ -479,6 +479,124 @@ Generate at least {config.get('min_examples', 20)} examples."""
         
         # Fallback: convert entire dataframe to string
         return str(data.to_dict('records'))[:max_chars]
+    
+    async def generate_dataset_chunked(
+        self,
+        chunks: List[Dict[str, Any]],
+        dataset_type: str,
+        config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Process multiple chunks and aggregate results
+        
+        Args:
+            chunks: List of document chunks from DocumentProcessor
+            dataset_type: Type of dataset to generate
+            config: Configuration for generation
+            
+        Returns:
+            Aggregated dataset results
+        """
+        print(f"[DatasetGenerator] Processing {len(chunks)} chunks for {dataset_type} dataset")
+        
+        all_results = []
+        total_rows = 0
+        failed_chunks = 0
+        
+        for i, chunk in enumerate(chunks):
+            print(f"[DatasetGenerator] Processing chunk {i+1}/{len(chunks)}")
+            
+            try:
+                # Create DataFrame from chunk
+                chunk_df = pd.DataFrame([{
+                    'content': chunk['content'],
+                    'enhanced_content': chunk['content'],
+                    'source_files': ', '.join(chunk['source_files']),
+                    'chunk_info': f"Chunk {i+1}/{len(chunks)}"
+                }])
+                
+                # Generate dataset for this chunk
+                result = await self.generate_dataset(
+                    chunk_df,
+                    dataset_type,
+                    config
+                )
+                
+                if result.get('success') and result.get('row_count', 0) > 0:
+                    all_results.append(result['generated_df'])
+                    total_rows += result['row_count']
+                else:
+                    failed_chunks += 1
+                    print(f"[DatasetGenerator] Chunk {i+1} failed or produced no rows")
+                    
+            except Exception as e:
+                print(f"[DatasetGenerator] Error processing chunk {i+1}: {str(e)}")
+                failed_chunks += 1
+        
+        # Aggregate results
+        if all_results:
+            combined_df = pd.concat(all_results, ignore_index=True)
+            
+            # Remove duplicates if any
+            original_len = len(combined_df)
+            combined_df = combined_df.drop_duplicates()
+            if len(combined_df) < original_len:
+                print(f"[DatasetGenerator] Removed {original_len - len(combined_df)} duplicate rows")
+            
+            return {
+                "success": True,
+                "generated_df": combined_df,
+                "dataset_type": dataset_type,
+                "row_count": len(combined_df),
+                "chunks_processed": len(chunks) - failed_chunks,
+                "chunks_failed": failed_chunks,
+                "columns": list(combined_df.columns)
+            }
+        else:
+            return {
+                "success": False,
+                "error": "No chunks produced results",
+                "chunks_failed": failed_chunks,
+                "generated_df": pd.DataFrame()
+            }
+    
+    async def generate_dataset_streaming(
+        self,
+        input_data: pd.DataFrame,
+        dataset_type: str,
+        config: Dict[str, Any],
+        callback: Optional[callable] = None
+    ):
+        """
+        Generate dataset with streaming results
+        
+        Args:
+            input_data: Input DataFrame
+            dataset_type: Type of dataset
+            config: Generation config
+            callback: Optional callback for progress updates
+            
+        Yields:
+            Generated rows as they're produced
+        """
+        # For now, implement basic streaming
+        # In production, this could use SSE or WebSockets
+        
+        result = await self.generate_dataset(input_data, dataset_type, config)
+        
+        if result.get('success') and result.get('row_count', 0) > 0:
+            df = result['generated_df']
+            
+            # Yield rows one by one
+            for idx, row in df.iterrows():
+                if callback:
+                    callback({
+                        'progress': (idx + 1) / len(df),
+                        'current_row': idx + 1,
+                        'total_rows': len(df)
+                    })
+                
+                yield row.to_dict()
 
 # Global instance
 dataset_generator = DatasetGenerator()
