@@ -15,6 +15,10 @@ import {
   Col,
   Tag,
   Divider,
+  Modal,
+  Statistic,
+  InputNumber,
+  Collapse,
 } from 'antd';
 import {
   FileTextOutlined,
@@ -25,6 +29,10 @@ import {
   CheckCircleOutlined,
   DownloadOutlined,
   RocketOutlined,
+  DollarOutlined,
+  ClockCircleOutlined,
+  WarningOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import api from '@/services/api';
 
@@ -83,16 +91,52 @@ export default function DatasetWizard({ dataset, onComplete, onCancel }: Dataset
   const [statusMessage, setStatusMessage] = useState('');
   const [generatedDataset, setGeneratedDataset] = useState<any>(null);
   const [error, setError] = useState('');
+  const [costEstimate, setCostEstimate] = useState<any>(null);
+  const [showCostModal, setShowCostModal] = useState(false);
+  const [estimatingCost, setEstimatingCost] = useState(false);
+  const [targetRows, setTargetRows] = useState<number | undefined>(undefined);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 
-  const generateDataset = async () => {
+  const estimateCost = async () => {
     if (!selectedType) {
       message.warning('Please select a dataset type');
+      return;
+    }
+
+    setEstimatingCost(true);
+    try {
+      const response = await api.post(`/api/v1/datasets/${dataset.id}/estimate-cost`, {
+        dataset_type: selectedType,
+        target_rows: targetRows,
+        custom_instructions: customInstructions,
+        processing_strategy: 'auto',
+      });
+
+      setCostEstimate(response.data);
+      setShowCostModal(true);
+    } catch (err: any) {
+      message.error(`Failed to estimate cost: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setEstimatingCost(false);
+    }
+  };
+
+  const generateDataset = async (skipCostEstimate: boolean = false) => {
+    if (!selectedType) {
+      message.warning('Please select a dataset type');
+      return;
+    }
+
+    // If we haven't shown cost estimate yet, show it first
+    if (!skipCostEstimate && !costEstimate) {
+      await estimateCost();
       return;
     }
 
     setGenerating(true);
     setError('');
     setProgress(0);
+    setShowCostModal(false);
     
     try {
       // Step 1: Create a simple one-step pipeline
@@ -363,19 +407,53 @@ export default function DatasetWizard({ dataset, onComplete, onCancel }: Dataset
             )}
 
             {selectedType && (
-              <Alert
-                message="What will happen:"
-                description={
-                  <ol style={{ marginBottom: 0, paddingLeft: 20 }}>
-                    <li>AI will read and understand all your uploaded files</li>
-                    <li>Extract relevant information based on your selected format</li>
-                    <li>Generate high-quality training examples</li>
-                    <li>Format everything properly for machine learning</li>
-                  </ol>
-                }
-                type="info"
-                showIcon
-              />
+              <>
+                <Alert
+                  message="What will happen:"
+                  description={
+                    <ol style={{ marginBottom: 0, paddingLeft: 20 }}>
+                      <li>AI will read and understand all your uploaded files</li>
+                      <li>Extract relevant information based on your selected format</li>
+                      <li>Generate high-quality training examples</li>
+                      <li>Format everything properly for machine learning</li>
+                    </ol>
+                  }
+                  type="info"
+                  showIcon
+                />
+
+                {/* Advanced Settings (Collapsible) */}
+                <Collapse ghost>
+                  <Collapse.Panel 
+                    header={
+                      <Space>
+                        <SettingOutlined />
+                        <span>Advanced Settings (Optional)</span>
+                      </Space>
+                    } 
+                    key="1"
+                  >
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      <div>
+                        <Text strong>Target Number of Rows:</Text>
+                        <br />
+                        <InputNumber
+                          min={5}
+                          max={1000}
+                          placeholder="Auto-detect (recommended)"
+                          value={targetRows}
+                          onChange={setTargetRows}
+                          style={{ width: 200, marginTop: 8 }}
+                        />
+                        <br />
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Leave empty to let AI determine optimal row count based on your data
+                        </Text>
+                      </div>
+                    </Space>
+                  </Collapse.Panel>
+                </Collapse>
+              </>
             )}
 
             <div style={{ textAlign: 'center' }}>
@@ -384,10 +462,18 @@ export default function DatasetWizard({ dataset, onComplete, onCancel }: Dataset
                   Cancel
                 </Button>
                 <Button
+                  icon={<DollarOutlined />}
+                  onClick={estimateCost}
+                  loading={estimatingCost}
+                  disabled={!selectedType || (selectedType === 'custom' && !customInstructions)}
+                >
+                  Estimate Cost
+                </Button>
+                <Button
                   type="primary"
                   size="large"
                   icon={<RocketOutlined />}
-                  onClick={generateDataset}
+                  onClick={() => generateDataset(true)}
                   disabled={!selectedType || (selectedType === 'custom' && !customInstructions)}
                 >
                   Generate Dataset
@@ -412,6 +498,147 @@ export default function DatasetWizard({ dataset, onComplete, onCancel }: Dataset
           </div>
         )}
       </Card>
+
+      {/* Cost Estimation Modal */}
+      <Modal
+        title={
+          <Space>
+            <DollarOutlined />
+            <span>Cost Estimation for {datasetTypes.find(t => t.id === selectedType)?.name} Dataset</span>
+          </Space>
+        }
+        open={showCostModal}
+        onCancel={() => setShowCostModal(false)}
+        width={600}
+        footer={[
+          <Button key="cancel" onClick={() => setShowCostModal(false)}>
+            Cancel
+          </Button>,
+          <Button 
+            key="generate" 
+            type="primary" 
+            icon={<RocketOutlined />}
+            onClick={() => generateDataset(true)}
+          >
+            Generate Dataset
+          </Button>,
+        ]}
+      >
+        {costEstimate && (
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            {/* Document Summary */}
+            <Card size="small">
+              <Row gutter={16}>
+                <Col span={8}>
+                  <Statistic
+                    title="Total Files"
+                    value={costEstimate.multi_document?.total_documents || 1}
+                    prefix={<FileTextOutlined />}
+                  />
+                </Col>
+                <Col span={8}>
+                  <Statistic
+                    title="Total Tokens"
+                    value={costEstimate.estimation.total_input_tokens}
+                    formatter={(value) => `${(value as number).toLocaleString()}`}
+                  />
+                </Col>
+                <Col span={8}>
+                  <Statistic
+                    title="Processing Time"
+                    value={costEstimate.estimation.estimated_time_seconds}
+                    suffix="seconds"
+                    prefix={<ClockCircleOutlined />}
+                  />
+                </Col>
+              </Row>
+            </Card>
+
+            {/* Expected Output */}
+            <Card size="small" title="Expected Output">
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Row justify="space-between">
+                  <Col><Text>Rows to generate:</Text></Col>
+                  <Col><Text strong>~{costEstimate.estimation.estimated_rows}</Text></Col>
+                </Row>
+                <Row justify="space-between">
+                  <Col><Text>Tokens per row:</Text></Col>
+                  <Col><Text strong>~{costEstimate.estimation.tokens_per_row}</Text></Col>
+                </Row>
+                <Row justify="space-between">
+                  <Col><Text>Total output tokens:</Text></Col>
+                  <Col><Text strong>~{costEstimate.estimation.estimated_output_tokens.toLocaleString()}</Text></Col>
+                </Row>
+              </Space>
+            </Card>
+
+            {/* Cost Breakdown */}
+            <Card 
+              size="small" 
+              title="Estimated Cost"
+              style={{ borderColor: '#1890ff' }}
+            >
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Row justify="space-between">
+                  <Col><Text>Input cost:</Text></Col>
+                  <Col><Text strong>${costEstimate.costs.input_cost.toFixed(4)}</Text></Col>
+                </Row>
+                <Row justify="space-between">
+                  <Col><Text>Output cost:</Text></Col>
+                  <Col><Text strong>${costEstimate.costs.output_cost.toFixed(4)}</Text></Col>
+                </Row>
+                <Divider style={{ margin: '8px 0' }} />
+                <Row justify="space-between">
+                  <Col><Text strong style={{ fontSize: 16 }}>Total:</Text></Col>
+                  <Col>
+                    <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
+                      ${costEstimate.costs.total_cost.toFixed(2)} USD
+                    </Text>
+                  </Col>
+                </Row>
+              </Space>
+            </Card>
+
+            {/* Warnings */}
+            {costEstimate.warnings && costEstimate.warnings.length > 0 && (
+              <Alert
+                message="Warnings"
+                description={
+                  <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
+                    {costEstimate.warnings.map((warning: string, idx: number) => (
+                      <li key={idx}>{warning}</li>
+                    ))}
+                  </ul>
+                }
+                type="warning"
+                showIcon
+                icon={<WarningOutlined />}
+              />
+            )}
+
+            {/* Recommendations */}
+            {costEstimate.recommendations && (
+              <Alert
+                message="Recommendation"
+                description={
+                  <Space direction="vertical">
+                    <Text>
+                      <strong>Strategy:</strong> {costEstimate.recommendations.optimal_strategy}
+                    </Text>
+                    <Text>{costEstimate.recommendations.reason}</Text>
+                  </Space>
+                }
+                type="info"
+                showIcon
+              />
+            )}
+
+            <Text type="secondary" style={{ fontSize: 12, textAlign: 'center', display: 'block' }}>
+              * Costs are estimates based on current Claude Sonnet 4 pricing. Actual costs may vary slightly.
+            </Text>
+          </Space>
+        )}
+      </Modal>
     </div>
   );
 }
