@@ -103,10 +103,10 @@ export default function DatasetWizard({ dataset, onComplete, onCancel }: Dataset
       return;
     }
 
-    // Get file IDs from the uploaded files
-    const fileIds = uploadedFiles.map(f => f.file_id);
+    // Get file IDs from the dataset's files
+    const fileIds = dataset.files?.map((f: any) => f.file_id) || [];
     if (fileIds.length === 0) {
-      message.error('No files uploaded');
+      message.error('No files in dataset');
       return;
     }
 
