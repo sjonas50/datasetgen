@@ -495,6 +495,94 @@ async def list_files(
     ]
     return user_files
 
+@app.post("/api/v1/estimate-cost")
+async def estimate_cost_from_files(
+    request: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Estimate cost for dataset generation from uploaded files without creating a dataset"""
+    from services.token_estimator import token_estimator
+    
+    try:
+        # Extract parameters
+        file_ids = request.get("file_ids", [])
+        dataset_type = request.get("dataset_type", "qa_pairs")
+        target_rows = request.get("target_rows")
+        custom_instructions = request.get("custom_instructions")
+        processing_strategy = request.get("processing_strategy", "auto")
+        
+        if not file_ids:
+            raise HTTPException(status_code=400, detail="No files provided")
+        
+        # Get files from database
+        files = db.get_files_by_owner(current_user["id"])
+        selected_files = [f for f in files if f["id"] in file_ids]
+        
+        if len(selected_files) != len(file_ids):
+            raise HTTPException(status_code=404, detail="One or more files not found")
+        
+        # Extract content from files
+        all_content = []
+        documents = []
+        
+        for file_info in selected_files:
+            file_path = Path(file_info["file_path"])
+            
+            if file_path.exists():
+                # Extract content based on file type
+                if file_info["file_type"] in ["text/plain", "text/markdown"]:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                elif file_info["file_type"] == "application/pdf":
+                    # For PDFs, use document extractor
+                    extraction_result = await document_extractor.extract_from_pdf(file_path, {"use_ai_extraction": False})
+                    content = extraction_result.get("text_content", "") or extraction_result.get("enhanced_content", "")
+                elif file_info["file_type"] in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
+                    # For Word docs
+                    extraction_result = await document_extractor.extract_from_docx(file_path)
+                    content = extraction_result.get("text_content", "")
+                else:
+                    # For CSV/JSON, just read as text for token counting
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                
+                all_content.append(content)
+                documents.append({
+                    "filename": file_info["filename"],
+                    "content": content,
+                    "file_type": file_info["file_type"]
+                })
+        
+        # Combine all content
+        combined_content = "\n\n---\n\n".join(all_content)
+        
+        # Estimate cost
+        if len(documents) > 1:
+            # Multi-document estimation
+            cost_estimate = await token_estimator.estimate_multi_document_cost(
+                documents,
+                dataset_type,
+                processing_strategy
+            )
+        else:
+            # Single document estimation
+            cost_estimate = await token_estimator.estimate_cost(
+                combined_content,
+                dataset_type,
+                target_rows,
+                custom_instructions
+            )
+        
+        return cost_estimate
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error estimating cost: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Cost estimation failed: {str(e)}")
+
 # Dataset endpoints with file support
 @app.get("/api/v1/datasets", response_model=List[DatasetResponse])
 async def list_datasets(

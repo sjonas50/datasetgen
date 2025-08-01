@@ -181,6 +181,8 @@ Document Information:
 
 Since this is a scanned document, create realistic Q&A pairs that would be typical for this type of professional document. Generate questions and answers as if you had access to the full document content.
 
+IMPORTANT: You MUST generate actual question-answer pairs, NOT a summary of the document.
+
 Requirements:
 1. Create diverse Q&A pairs covering all potential aspects of such a document
 2. Include questions about:
@@ -191,32 +193,46 @@ Requirements:
    - Practical applications
 3. Make answers detailed and realistic for the document type
 4. Ensure variety in question types and complexity levels
+5. Each entry MUST have a 'question' field with a complete question
+6. Each entry MUST have an 'answer' field with a direct answer
 
-Output format: JSON array with 'question' and 'answer' fields.
+Output format: Return ONLY a JSON array where each object has exactly two fields: 'question' and 'answer'.
 
-Generate at least {config.get('min_examples', 20)} high-quality Q&A pairs."""
+Example:
+[
+  {{"question": "What is the purpose of this document?", "answer": "The purpose of this document is..."}},
+  {{"question": "What are the main sections covered?", "answer": "The main sections include..."}}
+]
+
+Generate EXACTLY {config.get('min_examples', 20)} Q&A pairs. Do NOT generate a summary."""
         else:
             prompt = f"""Generate question-answer pairs for training a Q&A model based on the following content.
 
 Content:
 {content_sample}
 
+IMPORTANT: You MUST generate actual question-answer pairs, NOT a summary of the content.
+
 Requirements:
 1. Generate diverse, high-quality question-answer pairs
 2. Questions should cover different aspects of the content
 3. Answers should be accurate and based only on the provided content
 4. Include different types of questions (factual, analytical, inferential)
+5. Each question must be a complete question that someone might ask about the content
+6. Each answer must directly answer the corresponding question
 
 {config.get('additional_instructions', '')}
 
-Output format: JSON array with objects containing 'question' and 'answer' fields.
-Example:
+Output format: You MUST return a JSON array where each object has exactly two fields: 'question' and 'answer'.
+
+Example format:
 [
-  {{"question": "What is the main topic?", "answer": "The main topic is..."}},
-  {{"question": "How does X relate to Y?", "answer": "X relates to Y by..."}}
+  {{"question": "What is the main topic of the document?", "answer": "The main topic is [specific answer from content]"}},
+  {{"question": "What are the key findings mentioned?", "answer": "The key findings are [specific findings from content]"}},
+  {{"question": "How does the document describe [specific concept]?", "answer": "The document describes [concept] as [specific description from content]"}}
 ]
 
-Generate at least {config.get('min_examples', 20)} Q&A pairs."""
+Generate EXACTLY {config.get('min_examples', 20)} Q&A pairs. Do NOT generate a summary or any other format."""
         
         return prompt
     

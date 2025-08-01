@@ -103,9 +103,17 @@ export default function DatasetWizard({ dataset, onComplete, onCancel }: Dataset
       return;
     }
 
+    // Get file IDs from the uploaded files
+    const fileIds = uploadedFiles.map(f => f.file_id);
+    if (fileIds.length === 0) {
+      message.error('No files uploaded');
+      return;
+    }
+
     setEstimatingCost(true);
     try {
-      const response = await api.post(`/api/v1/datasets/${dataset.id}/estimate-cost`, {
+      const response = await api.post('/api/v1/estimate-cost', {
+        file_ids: fileIds,
         dataset_type: selectedType,
         target_rows: targetRows,
         custom_instructions: customInstructions,
