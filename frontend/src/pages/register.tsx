@@ -1,37 +1,48 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 
-export default function Login() {
+export default function Register() {
   const router = useRouter();
+  const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const formData = new FormData();
-      formData.append('username', username);
-      formData.append('password', password);
-
-      const response = await fetch('http://localhost:8000/api/v1/auth/login', {
+      const response = await fetch('http://localhost:8000/api/v1/auth/register', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          username,
+          password,
+        }),
       });
 
       if (!response.ok) {
-        throw new Error('Invalid credentials');
+        const data = await response.json();
+        throw new Error(data.detail || 'Registration failed');
       }
 
-      const data = await response.json();
-      localStorage.setItem('auth_token', data.access_token);
-      router.push('/dashboard');
+      // Registration successful, redirect to login
+      router.push('/login');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -40,7 +51,7 @@ export default function Login() {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <h1 style={styles.title}>Login to DatasetGen</h1>
+        <h1 style={styles.title}>Create Account</h1>
         
         <form onSubmit={handleSubmit} style={styles.form}>
           {error && (
@@ -48,7 +59,18 @@ export default function Login() {
           )}
           
           <div style={styles.field}>
-            <label style={styles.label}>Username or Email</label>
+            <label style={styles.label}>Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              style={styles.input}
+              required
+            />
+          </div>
+          
+          <div style={styles.field}>
+            <label style={styles.label}>Username</label>
             <input
               type="text"
               value={username}
@@ -69,6 +91,17 @@ export default function Login() {
             />
           </div>
           
+          <div style={styles.field}>
+            <label style={styles.label}>Confirm Password</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              style={styles.input}
+              required
+            />
+          </div>
+          
           <button
             type="submit"
             disabled={loading}
@@ -78,12 +111,12 @@ export default function Login() {
               cursor: loading ? 'not-allowed' : 'pointer',
             }}
           >
-            {loading ? 'Logging in...' : 'Login'}
+            {loading ? 'Creating account...' : 'Sign Up'}
           </button>
         </form>
         
         <p style={styles.link}>
-          Don't have an account? <a href="/register">Sign up</a>
+          Already have an account? <a href="/login">Login</a>
         </p>
       </div>
     </div>

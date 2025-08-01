@@ -83,3 +83,18 @@ Thumbs.db
 .cache/
 tmp/
 temp/
+
+# DatasetGen specific
+uploads/
+backend/uploads/
+backend/*.log
+backend/backend_*.log
+backend/test_*.py
+backend/datasetgen.db
+frontend/.next/
+results/
+*.csv
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json

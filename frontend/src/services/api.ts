@@ -16,6 +16,12 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  
+  // Don't override Content-Type for FormData
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
+  
   return config;
 });
 
@@ -88,7 +94,7 @@ export const authService = {
     const formData = new FormData();
     formData.append('username', username);
     formData.append('password', password);
-    return api.post('/api/v1/auth/token', formData);
+    return api.post('/api/v1/auth/login', formData);
   },
   
   register: (data: { email: string; username: string; password: string }) =>

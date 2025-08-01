@@ -1,64 +1,123 @@
-import { useState, useEffect } from 'react';
-import { Layout, Table, Button, Space, Tag, Modal, Form, Input, Select, message } from 'antd';
-import { PlusOutlined, UploadOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
-import Link from 'next/link';
-import { datasetService } from '@/services/api';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import { Layout, Card, Table, Button, Space, Tag, Modal, Form, Input, message, Tabs, Empty, Spin, Typography, Divider, Tooltip } from 'antd';
+import {
+  PlusOutlined,
+  DatabaseOutlined,
+  FileTextOutlined,
+  UploadOutlined,
+  EyeOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  FolderOpenOutlined,
+  RocketOutlined,
+} from '@ant-design/icons';
+import PageHeader from '@/components/PageHeader';
+import FileUpload from '@/components/FileUpload';
+import SmartPipelineCreator from '@/components/SmartPipelineCreator';
+import DatasetWizard from '@/components/DatasetWizard';
+import api from '@/services/api';
 
-const { Header, Content } = Layout;
-const { Option } = Select;
+const { TextArea } = Input;
+const { Title, Text } = Typography;
 
-interface Dataset {
-  id: string;
-  name: string;
-  description: string;
-  status: string;
-  source_type: string;
-  row_count: number;
-  created_at: string;
-}
-
-export default function Datasets() {
-  const [datasets, setDatasets] = useState<Dataset[]>([]);
-  const [loading, setLoading] = useState(false);
+export default function DatasetsPage() {
+  const router = useRouter();
+  const [datasets, setDatasets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [selectedDataset, setSelectedDataset] = useState<any>(null);
+  const [showSmartPipeline, setShowSmartPipeline] = useState(false);
+  const [showDatasetWizard, setShowDatasetWizard] = useState(false);
   const [form] = Form.useForm();
 
   useEffect(() => {
-    fetchDatasets();
+    loadDatasets();
   }, []);
 
-  const fetchDatasets = async () => {
-    setLoading(true);
+  const loadDatasets = async () => {
     try {
-      const response = await datasetService.list();
-      setDatasets(response.data.datasets);
+      setLoading(true);
+      const response = await api.get('/api/v1/datasets');
+      setDatasets(response.data);
     } catch (error) {
-      message.error('Failed to fetch datasets');
+      message.error('Failed to load datasets');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreate = async (values: any) => {
+  const handleCreateDataset = async (values: any) => {
+    if (uploadedFiles.length === 0) {
+      message.error('Please upload at least one file');
+      return;
+    }
+
     try {
-      await datasetService.create(values);
+      setCreating(true);
+      const response = await api.post('/api/v1/datasets', {
+        name: values.name,
+        description: values.description,
+        file_ids: uploadedFiles.map(f => f.file_id),
+      });
+      
       message.success('Dataset created successfully');
       setCreateModalVisible(false);
       form.resetFields();
-      fetchDatasets();
+      setUploadedFiles([]);
+      loadDatasets();
+      
+      // Show smart pipeline creator for the new dataset
+      setSelectedDataset(response.data);
+      setShowSmartPipeline(true);
     } catch (error) {
       message.error('Failed to create dataset');
+    } finally {
+      setCreating(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await datasetService.delete(id);
-      message.success('Dataset deleted successfully');
-      fetchDatasets();
-    } catch (error) {
-      message.error('Failed to delete dataset');
-    }
+  const handleDeleteDataset = async (datasetId: string) => {
+    Modal.confirm({
+      title: 'Delete Dataset',
+      content: 'Are you sure you want to delete this dataset? This action cannot be undone.',
+      okText: 'Delete',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          await api.delete(`/api/v1/datasets/${datasetId}`);
+          message.success('Dataset deleted');
+          loadDatasets();
+        } catch (error) {
+          message.error('Failed to delete dataset');
+        }
+      },
+    });
+  };
+
+  const getFileTypeIcon = (files: any[]) => {
+    if (!files || files.length === 0) return <DatabaseOutlined />;
+    
+    const fileTypes = files.map(f => f.preview?.type).filter(Boolean);
+    if (fileTypes.some(t => t === 'document')) return <FileTextOutlined />;
+    if (fileTypes.some(t => t === 'image')) return <FileTextOutlined />;
+    return <DatabaseOutlined />;
+  };
+
+  const getDatasetTypeTags = (files: any[]) => {
+    const types = new Set<string>();
+    files?.forEach(file => {
+      if (file.preview?.type === 'document') {
+        types.add(file.preview.format?.toUpperCase() || 'DOC');
+      } else if (file.preview?.type === 'image') {
+        types.add('IMAGE');
+      } else if (file.preview?.rows) {
+        types.add('DATA');
+      }
+    });
+    return Array.from(types);
   };
 
   const columns = [
@@ -66,42 +125,54 @@ export default function Datasets() {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-      render: (text: string, record: Dataset) => (
-        <Link href={`/datasets/${record.id}`}>
-          <a className="font-medium text-blue-600 hover:text-blue-800">{text}</a>
-        </Link>
+      render: (text: string, record: any) => (
+        <Space>
+          {getFileTypeIcon(record.files)}
+          <span style={{ fontWeight: 500 }}>{text}</span>
+        </Space>
       ),
     },
     {
-      title: 'Description',
-      dataIndex: 'description',
-      key: 'description',
-      ellipsis: true,
+      title: 'Type',
+      key: 'type',
+      render: (_: any, record: any) => (
+        <Space>
+          {getDatasetTypeTags(record.files).map(type => (
+            <Tag key={type} color={
+              type === 'PDF' ? 'red' :
+              type === 'WORD' ? 'blue' :
+              type === 'IMAGE' ? 'orange' :
+              type === 'DATA' ? 'green' :
+              'default'
+            }>
+              {type}
+            </Tag>
+          ))}
+        </Space>
+      ),
     },
     {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => {
-        const colorMap: { [key: string]: string } = {
-          created: 'blue',
-          processing: 'orange',
-          ready: 'green',
-          failed: 'red',
-        };
-        return <Tag color={colorMap[status] || 'default'}>{status.toUpperCase()}</Tag>;
-      },
+      title: 'Files',
+      key: 'files',
+      render: (_: any, record: any) => (
+        <Tag icon={<FolderOpenOutlined />}>
+          {record.files?.length || 0} files
+        </Tag>
+      ),
     },
     {
-      title: 'Source',
-      dataIndex: 'source_type',
-      key: 'source_type',
-    },
-    {
-      title: 'Rows',
-      dataIndex: 'row_count',
-      key: 'row_count',
-      render: (count: number) => count.toLocaleString(),
+      title: 'Quality',
+      dataIndex: 'quality_score',
+      key: 'quality_score',
+      render: (score: number) => (
+        score ? (
+          <Tag color={score >= 80 ? 'success' : score >= 60 ? 'warning' : 'error'}>
+            {score.toFixed(0)}%
+          </Tag>
+        ) : (
+          <Tag>Not analyzed</Tag>
+        )
+      ),
     },
     {
       title: 'Created',
@@ -112,115 +183,198 @@ export default function Datasets() {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_: any, record: Dataset) => (
+      render: (_: any, record: any) => (
         <Space>
-          <Button icon={<EyeOutlined />} size="small">View</Button>
-          <Button icon={<UploadOutlined />} size="small">Upload</Button>
-          <Button 
-            icon={<DeleteOutlined />} 
-            size="small" 
-            danger
-            onClick={() => handleDelete(record.id)}
+          <Tooltip title="AI-Powered Dataset Generation">
+            <Button
+              type="primary"
+              size="small"
+              icon={<RocketOutlined />}
+              onClick={() => {
+                setSelectedDataset(record);
+                setShowDatasetWizard(true);
+              }}
+            >
+              Generate Dataset
+            </Button>
+          </Tooltip>
+          <Tooltip title="Advanced Pipeline Builder">
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => router.push(`/pipelines?dataset=${record.id}`)}
+            >
+              Advanced
+            </Button>
+          </Tooltip>
+          <Button
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => router.push(`/datasets/${record.id}`)}
           >
-            Delete
+            View
           </Button>
+          <Button
+            danger
+            size="small"
+            icon={<DeleteOutlined />}
+            onClick={() => handleDeleteDataset(record.id)}
+          />
         </Space>
       ),
     },
   ];
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Header style={{ background: '#fff', padding: '0 50px', borderBottom: '1px solid #f0f0f0' }}>
-        <h1 style={{ margin: '16px 0' }}>Datasets</h1>
-      </Header>
+    <Layout>
+      <PageHeader 
+        title="Dataset Management"
+        subtitle="Upload and manage your data sources"
+      />
+      
+      <Layout.Content style={{ padding: '24px' }}>
+        <Card>
+          <div style={{ marginBottom: 24 }}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setCreateModalVisible(true)}
+              size="large"
+            >
+              Create New Dataset
+            </Button>
+          </div>
 
-      <Content style={{ padding: '24px 50px' }}>
-        <div style={{ marginBottom: '24px' }}>
-          <Button 
-            type="primary" 
-            icon={<PlusOutlined />}
-            onClick={() => setCreateModalVisible(true)}
-          >
-            Create Dataset
-          </Button>
-        </div>
-
-        <Table
-          columns={columns}
-          dataSource={datasets}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total) => `Total ${total} datasets`,
-          }}
-        />
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '50px' }}>
+              <Spin size="large" />
+            </div>
+          ) : datasets.length === 0 ? (
+            <Empty
+              description="No datasets created yet"
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+            >
+              <Button 
+                type="primary" 
+                onClick={() => setCreateModalVisible(true)}
+              >
+                Upload Your First Dataset
+              </Button>
+            </Empty>
+          ) : (
+            <Table
+              dataSource={datasets}
+              columns={columns}
+              rowKey="id"
+              pagination={false}
+            />
+          )}
+        </Card>
 
         <Modal
-          title="Create Dataset"
+          title="Create New Dataset"
           open={createModalVisible}
-          onCancel={() => setCreateModalVisible(false)}
-          footer={null}
+          onCancel={() => {
+            setCreateModalVisible(false);
+            form.resetFields();
+            setUploadedFiles([]);
+          }}
+          onOk={() => form.submit()}
+          confirmLoading={creating}
+          width={700}
         >
           <Form
             form={form}
             layout="vertical"
-            onFinish={handleCreate}
+            onFinish={handleCreateDataset}
           >
             <Form.Item
               name="name"
               label="Dataset Name"
               rules={[{ required: true, message: 'Please enter a dataset name' }]}
             >
-              <Input placeholder="My Dataset" />
+              <Input placeholder="e.g., Customer Support Documents" />
             </Form.Item>
 
             <Form.Item
               name="description"
               label="Description"
             >
-              <Input.TextArea rows={3} placeholder="Dataset description..." />
-            </Form.Item>
-
-            <Form.Item
-              name="source_type"
-              label="Source Type"
-              rules={[{ required: true, message: 'Please select a source type' }]}
-            >
-              <Select placeholder="Select source type">
-                <Option value="csv">CSV File</Option>
-                <Option value="json">JSON File</Option>
-                <Option value="database">Database</Option>
-                <Option value="api">API</Option>
-              </Select>
-            </Form.Item>
-
-            <Form.Item
-              name="source_config"
-              label="Source Configuration"
-              initialValue={{}}
-            >
-              <Input.TextArea 
-                rows={4} 
-                placeholder='{"file_path": "/path/to/file.csv"}'
+              <TextArea 
+                rows={3} 
+                placeholder="Describe the dataset and its intended use..."
               />
             </Form.Item>
 
-            <Form.Item>
-              <Space>
-                <Button type="primary" htmlType="submit">
-                  Create
-                </Button>
-                <Button onClick={() => setCreateModalVisible(false)}>
-                  Cancel
-                </Button>
-              </Space>
+            <Form.Item label="Upload Files">
+              <FileUpload 
+                onFilesUploaded={setUploadedFiles}
+                multiple={true}
+              />
+              <div style={{ marginTop: 8 }}>
+                <Text type="secondary">
+                  Upload any combination of files: spreadsheets, documents, PDFs, images, etc.
+                </Text>
+              </div>
             </Form.Item>
           </Form>
         </Modal>
-      </Content>
+
+        <Modal
+          title="AI-Powered Pipeline Creation"
+          open={showSmartPipeline}
+          onCancel={() => {
+            setShowSmartPipeline(false);
+            setSelectedDataset(null);
+          }}
+          footer={null}
+          width={900}
+        >
+          {selectedDataset && (
+            <SmartPipelineCreator
+              dataset={selectedDataset}
+              onComplete={() => {
+                setShowSmartPipeline(false);
+                // Add small delay to allow modal to close properly before navigation
+                setTimeout(() => {
+                  router.push('/pipelines');
+                }, 100);
+              }}
+              onCancel={() => {
+                setShowSmartPipeline(false);
+                // Add small delay to allow modal to close properly before navigation
+                setTimeout(() => {
+                  router.push(`/pipelines?dataset=${selectedDataset.id}`);
+                }, 100);
+              }}
+            />
+          )}
+        </Modal>
+
+        <Modal
+          title="Generate Training Dataset"
+          open={showDatasetWizard}
+          onCancel={() => {
+            setShowDatasetWizard(false);
+            setSelectedDataset(null);
+          }}
+          footer={null}
+          width={1000}
+        >
+          {selectedDataset && (
+            <DatasetWizard
+              dataset={selectedDataset}
+              onComplete={() => {
+                setShowDatasetWizard(false);
+                loadDatasets();
+              }}
+              onCancel={() => {
+                setShowDatasetWizard(false);
+              }}
+            />
+          )}
+        </Modal>
+      </Layout.Content>
     </Layout>
   );
 }

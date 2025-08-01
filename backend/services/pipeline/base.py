@@ -225,3 +225,40 @@ class BasePipelineStep(ABC):
         
         key_str = json.dumps(key_data, sort_keys=True)
         return f"pipeline_step_{hashlib.md5(key_str.encode()).hexdigest()}"
+
+
+class StepInput(BaseModel):
+    """Input for a pipeline step"""
+    data: Any
+    config: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class StepOutput(BaseModel):
+    """Output from a pipeline step"""
+    data: Any
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    success: bool = True
+    error: Optional[str] = None
+    
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class PipelineStep(BasePipelineStep):
+    """Concrete implementation of pipeline step for compatibility"""
+    
+    async def execute(self, input_data: Any, context: Dict[str, Any]) -> StepResult:
+        """Execute the step"""
+        raise NotImplementedError("Subclass must implement execute method")
+    
+    def validate_config(self) -> bool:
+        """Validate step configuration"""
+        return True
+    
+    async def process(self, input_data: StepInput) -> StepOutput:
+        """Process method for new-style steps"""
+        raise NotImplementedError("Subclass must implement process method")

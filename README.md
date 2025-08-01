@@ -1,62 +1,58 @@
 # DatasetGen - AI-First Dataset Creation Platform
 
-An advanced platform that transforms raw enterprise data into high-quality ML training datasets through intelligent processing, multi-modal fusion, and visual pipeline building. Built with cutting-edge LLMs including Claude Sonnet 4, GPT-4, and Gemini, achieving 30x efficiency improvements through DocETL-inspired optimization.
+Transform any document into high-quality ML training datasets with just a few clicks. DatasetGen uses Claude Sonnet 4 to intelligently process PDFs, Word docs, images, and more - automatically generating Q&A pairs, classification data, NER datasets, and custom formats tailored to your needs.
 
 ## 🚀 Key Features
 
-### Intelligence Layer
-- **Claude Sonnet 4 Integration**: Extended thinking and vision capabilities for document understanding
-- **Multi-LLM Support**: OpenAI GPT-4, Google Gemini, and Claude models
-- **DocETL-Inspired Optimization**: 30x efficiency improvement in pipeline execution
-- **Intelligent Schema Detection**: Automatic type inference and data understanding
+### 🎯 User-Friendly Dataset Generation
+- **One-Click Generation**: Upload files → Choose dataset type → Generate
+- **Smart Document Processing**: Handles scanned PDFs, images, Word docs, CSVs, and more
+- **Multiple Dataset Types**: 
+  - Q&A Pairs for chatbots and FAQ systems
+  - Text Classification for sentiment analysis
+  - Named Entity Recognition (NER) for information extraction
+  - Summarization pairs for abstractive models
+  - Custom formats based on your requirements
 
-### Data Processing
-- **Multi-Modal Fusion**: MDF Framework implementation with 5 fusion strategies
-- **Visual Pipeline Builder**: Drag-and-drop interface with React Flow
-- **Quality Validation**: 10 types of automated checks with severity levels
-- **PII Detection**: Built-in patterns for SSN, email, phone, credit cards, IP addresses
-- **PDF Processing**: Table extraction using Claude Vision API
+### 🧠 Powered by Claude Sonnet 4
+- **Latest AI Model**: Uses Claude Sonnet 4 (claude-sonnet-4-20250514)
+- **Vision Capabilities**: Extracts content from images and scanned documents
+- **Intelligent Generation**: Creates contextually appropriate training data
+- **High-Quality Output**: Generates diverse, realistic examples
 
-### Monitoring & Operations
-- **Real-Time Dashboard**: Track pipeline executions, costs, and performance
-- **Cost Tracking**: Detailed breakdown by LLM provider, pipeline, and resource type
-- **Prometheus Metrics**: Production-ready monitoring integration
-- **Distributed Execution**: Celery-based pipeline orchestration
+### 📊 Two Interfaces
+- **Dataset Wizard**: Simple UI for non-technical users - just click and generate
+- **Pipeline Builder**: Advanced visual interface for complex workflows
+- **Real-Time Monitoring**: Track generation progress and results
 
-### Enterprise Features
-- **Security**: JWT authentication, role-based access control
-- **Data Connectors**: CSV, JSON with auto-detection and LLM enhancement
-- **Caching**: Redis-based caching for LLM responses
-- **API Documentation**: Auto-generated OpenAPI/Swagger docs
+### 🔒 Enterprise Ready
+- **Authentication**: Secure JWT-based access control  
+- **SQLite Storage**: Persistent data storage (upgradeable to PostgreSQL)
+- **File Support**: PDF, DOCX, TXT, CSV, JSON, PNG, JPG
+- **Export Options**: Download datasets as CSV or JSON
 
 ## 🏗️ Architecture
 
 ```
 ┌──────────────────────────────────────────────┐
-│     Frontend (Next.js + React Flow)          │
-│   • Visual Pipeline Builder                  │
-│   • Monitoring Dashboard                     │
-│   • Dataset Management                       │
+│          Frontend (Next.js)                  │
+│   • Dataset Wizard (Simple UI)               │
+│   • Pipeline Builder (Advanced)              │
+│   • File Upload & Management                 │
 ├──────────────────────────────────────────────┤
-│        API Layer (FastAPI)                   │
-│   • RESTful Endpoints                        │
-│   • WebSocket Support                        │
-│   • OpenAPI Documentation                    │
+│        Backend (FastAPI)                     │
+│   • REST API                                 │
+│   • Authentication (JWT)                     │
+│   • File Processing                          │
 ├──────────────────────────────────────────────┤
-│     Intelligence Layer                       │
-│   • Claude Sonnet 4 (Extended Thinking)      │
-│   • GPT-4 / Gemini Integration              │
-│   • DocETL Pipeline Optimizer               │
+│     AI Layer (Claude Sonnet 4)               │
+│   • Document Understanding                   │
+│   • Vision Processing                        │
+│   • Dataset Generation                       │
 ├──────────────────────────────────────────────┤
-│     Processing Layer                         │
-│   • Multi-Modal Fusion Engine               │
-│   • Quality Validation System               │
-│   • PII Detection & Masking                │
-├──────────────────────────────────────────────┤
-│     Data Layer                              │
-│   • PostgreSQL (Metadata)                   │
-│   • Redis (Caching & Metrics)              │
-│   • S3/Local Storage (Datasets)            │
+│         Data Storage                         │
+│   • SQLite Database                          │
+│   • Local File Storage                       │
 └──────────────────────────────────────────────┘
 ```
 
@@ -64,12 +60,9 @@ An advanced platform that transforms raw enterprise data into high-quality ML tr
 
 ### Prerequisites
 
-- Docker and Docker Compose (recommended)
-- Or manually install:
-  - Python 3.11+
-  - Node.js 18+
-  - PostgreSQL 15+
-  - Redis 7+
+- Python 3.11+
+- Node.js 18+
+- Poppler (for PDF processing): `brew install poppler` (macOS) or `apt-get install poppler-utils` (Linux)
 
 ### Setup Instructions
 
@@ -79,39 +72,48 @@ git clone https://github.com/yourorg/dataset-gen.git
 cd dataset-gen
 ```
 
-2. **Configure environment:**
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and add your API keys:
+2. **Set up environment variables:**
+Create a `.env` file in the root directory:
 ```env
-# Required for Claude Sonnet 4
+# Required - Get your key from https://console.anthropic.com
 ANTHROPIC_API_KEY=your_anthropic_api_key
 
-# Optional for additional LLMs
-OPENAI_API_KEY=your_openai_api_key
-GOOGLE_API_KEY=your_google_api_key
-
-# Generate secret key
-SECRET_KEY=$(openssl rand -hex 32)
+# Generate a secret key
+SECRET_KEY=your-secret-key-here
 ```
 
-3. **Start with Docker Compose:**
+3. **Install backend dependencies:**
 ```bash
-docker-compose up -d
+cd backend
+pip install -r requirements.txt
 ```
 
-4. **Access the platform:**
+4. **Install frontend dependencies:**
+```bash
+cd ../frontend
+npm install
+```
+
+5. **Start the application:**
+
+In one terminal, start the backend:
+```bash
+cd backend
+python main_full.py
+```
+
+In another terminal, start the frontend:
+```bash
+cd frontend
+npm run dev
+```
+
+6. **Access the platform:**
 - 🌐 Frontend: http://localhost:3000
 - 🔧 Backend API: http://localhost:8000
 - 📚 API Documentation: http://localhost:8000/docs
-- 📊 Monitoring: http://localhost:3000/monitoring
 
-5. **Create an account:**
-- Navigate to http://localhost:3000/register
-- Create your account
-- Login to access the platform
+7. **Create an account and start generating datasets!**
 
 ## 📁 Project Structure
 
