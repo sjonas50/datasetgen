@@ -18,17 +18,27 @@ import hashlib
 class TokenEstimator:
     """Estimate tokens and costs for dataset generation"""
     
-    # Pricing as of December 2024
+    # Pricing as of July 2025
     PRICING = {
-        "claude-sonnet-4-20250514": {
+        "claude-sonnet-4-20250730": {
             "input": 3.0 / 1_000_000,   # $3 per million input tokens
             "output": 15.0 / 1_000_000,  # $15 per million output tokens
-            "name": "Claude Sonnet 4"
+            "name": "Claude Sonnet 4",
+            "max_output_tokens": 64000,
+            "supports_vision": True
         },
-        "claude-opus-4-20250514": {
+        "claude-opus-4-20250730": {
             "input": 15.0 / 1_000_000,   # $15 per million input tokens  
             "output": 75.0 / 1_000_000,  # $75 per million output tokens
-            "name": "Claude Opus 4"
+            "name": "Claude Opus 4",
+            "max_output_tokens": 8192,
+            "supports_vision": True
+        },
+        # Legacy models (being phased out)
+        "claude-sonnet-4-20250514": {
+            "input": 3.0 / 1_000_000,
+            "output": 15.0 / 1_000_000,
+            "name": "Claude Sonnet 4 (Legacy)"
         }
     }
     

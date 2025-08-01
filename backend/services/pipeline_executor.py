@@ -17,6 +17,8 @@ import queue
 from services.claude_service import ClaudeService
 from services.document_extractor import document_extractor
 from services.dataset_generator import dataset_generator
+from services.document_pipeline import document_pipeline
+from services.document import ProcessedDocument, DocumentCollection
 from tasks.processing_tasks import (
     quality_validation_task,
     pii_detection_task,
@@ -497,7 +499,68 @@ class PipelineExecutor:
             })
     
     async def load_dataset_files(self, dataset: Dict[str, Any]) -> pd.DataFrame:
-        """Load all files from a dataset into a DataFrame"""
+        """Load all files from a dataset into a DataFrame using the new document pipeline"""
+        files = dataset.get("files", [])
+        
+        if not files:
+            print("[PipelineExecutor] No files in dataset")
+            return pd.DataFrame()
+        
+        print(f"[PipelineExecutor] Loading {len(files)} files using document pipeline")
+        
+        # Extract file paths and types
+        file_info = []
+        for file in files:
+            file_info.append({
+                'path': Path(file["file_path"]),
+                'type': file["file_type"],
+                'filename': file["filename"]
+            })
+        
+        try:
+            # Use document pipeline to load all files
+            file_paths = [f['path'] for f in file_info]
+            
+            # Add progress callback
+            def progress_callback(progress_data):
+                print(f"[PipelineExecutor] {progress_data['stage']}: {progress_data['message']} ({progress_data['percentage']:.1f}%)")
+            
+            document_pipeline.add_progress_callback(progress_callback)
+            
+            # Process all documents
+            collection = await document_pipeline.process_multiple_documents(
+                file_paths,
+                options={
+                    'parallel_processing': len(file_paths) > 5,
+                    'batch_size': 5,
+                    'enable_chunking': False  # Will be handled by dataset generator if needed
+                }
+            )
+            
+            # Convert to DataFrame for pipeline processing
+            df = collection.to_dataframe()
+            
+            # Add original file metadata
+            for i, file in enumerate(files):
+                if i < len(df):
+                    df.loc[i, 'file_id'] = file.get('id', '')
+                    df.loc[i, 'original_file_type'] = file.get('file_type', '')
+            
+            print(f"[PipelineExecutor] Loaded {len(df)} rows from {collection.total_documents} documents")
+            print(f"[PipelineExecutor] Document types: {collection.document_types}")
+            
+            # Store collection for later use
+            self._document_collection = collection
+            
+            return df
+            
+        except Exception as e:
+            print(f"[PipelineExecutor] Error loading files with document pipeline: {e}")
+            # Fallback to old method
+            return await self._load_dataset_files_legacy(dataset)
+    
+    async def _load_dataset_files_legacy(self, dataset: Dict[str, Any]) -> pd.DataFrame:
+        """Legacy file loading method as fallback"""
         dfs = []
         
         for file in dataset.get("files", []):

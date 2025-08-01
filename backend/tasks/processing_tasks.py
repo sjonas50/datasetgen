@@ -6,7 +6,12 @@ import re
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Optional
-from scipy import stats
+try:
+    from scipy import stats
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+    print("[ProcessingTasks] scipy not available - some quality validation features disabled")
 import asyncio
 
 from services.claude_service import ClaudeService
@@ -286,8 +291,18 @@ def outlier_detection_task(df: pd.DataFrame, config: Dict[str, Any]) -> Dict[str
             continue
         
         if method == "zscore":
-            z_scores = np.abs(stats.zscore(col_data))
-            outlier_mask = z_scores > threshold
+            if SCIPY_AVAILABLE:
+                z_scores = np.abs(stats.zscore(col_data))
+                outlier_mask = z_scores > threshold
+            else:
+                # Fallback: manual z-score calculation
+                mean = col_data.mean()
+                std = col_data.std()
+                if std == 0:
+                    outlier_mask = pd.Series([False] * len(col_data), index=col_data.index)
+                else:
+                    z_scores = np.abs((col_data - mean) / std)
+                    outlier_mask = z_scores > threshold
         elif method == "iqr":
             Q1 = col_data.quantile(0.25)
             Q3 = col_data.quantile(0.75)
