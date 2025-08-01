@@ -502,6 +502,7 @@ async def estimate_cost_from_files(
 ):
     """Estimate cost for dataset generation from uploaded files without creating a dataset"""
     from services.token_estimator import token_estimator
+    from services.document_extractor import document_extractor
     
     try:
         # Extract parameters
@@ -1114,6 +1115,101 @@ async def download_execution_results(
         path=str(output_path),
         filename=f"results_{execution_id}.csv",
         media_type="text/csv"
+    )
+
+@app.post("/api/v1/pipelines/{pipeline_id}/execute/stream")
+async def execute_pipeline_streaming(
+    pipeline_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Execute a pipeline with streaming progress updates"""
+    from fastapi.responses import StreamingResponse
+    import asyncio
+    import json
+    
+    # Get pipeline from SQLite
+    pipelines = db.get_pipelines_by_owner(current_user["id"])
+    pipeline = next((p for p in pipelines if p["id"] == pipeline_id), None)
+    
+    if not pipeline:
+        raise HTTPException(status_code=404, detail="Pipeline not found")
+    
+    # Get the dataset from SQLite
+    datasets = db.get_datasets_by_owner(current_user["id"])
+    dataset = next((d for d in datasets if d["id"] == pipeline["dataset_id"]), None)
+    
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    
+    # Get files from SQLite
+    files = db.get_files_by_dataset(dataset["id"])
+    if not files:
+        raise HTTPException(status_code=400, detail="Dataset has no files")
+    
+    # Add file information to dataset
+    dataset["files"] = files
+    
+    async def generate_progress():
+        """Generate Server-Sent Events for progress updates"""
+        try:
+            # Start execution
+            execution_id = execution_tracker.create_execution(pipeline["id"])
+            
+            # Send initial event
+            yield f"data: {json.dumps({'event': 'start', 'execution_id': execution_id})}\n\n"
+            
+            # Create a progress callback
+            progress_queue = asyncio.Queue()
+            
+            async def progress_callback(progress_data):
+                await progress_queue.put(progress_data)
+            
+            # Start the pipeline execution in a background task
+            execution_task = asyncio.create_task(
+                pipeline_executor.execute_pipeline_streaming(
+                    pipeline, dataset, execution_id, progress_callback
+                )
+            )
+            
+            # Stream progress updates
+            while True:
+                try:
+                    # Wait for progress update or check if task is done
+                    progress_data = await asyncio.wait_for(
+                        progress_queue.get(), 
+                        timeout=0.5
+                    )
+                    
+                    # Send progress event
+                    yield f"data: {json.dumps({'event': 'progress', **progress_data})}\n\n"
+                    
+                except asyncio.TimeoutError:
+                    # Check if execution is complete
+                    if execution_task.done():
+                        # Get the result
+                        try:
+                            result = await execution_task
+                            execution_status = get_execution_status(execution_id)
+                            
+                            if execution_status and execution_status["status"] == "completed":
+                                yield f"data: {json.dumps({'event': 'complete', 'execution_id': execution_id, 'metrics': execution_status.get('metrics', {})})}\n\n"
+                            else:
+                                yield f"data: {json.dumps({'event': 'error', 'error': execution_status.get('error', 'Unknown error')})}\n\n"
+                        except Exception as e:
+                            yield f"data: {json.dumps({'event': 'error', 'error': str(e)})}\n\n"
+                        break
+                    
+        except Exception as e:
+            yield f"data: {json.dumps({'event': 'error', 'error': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable Nginx buffering
+        }
     )
 
 # Serve uploaded files (for development only)

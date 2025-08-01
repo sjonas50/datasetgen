@@ -127,6 +127,32 @@ class DocumentPipeline:
                     doc.claude_analysis = claude_result
                     doc.processed_at = datetime.utcnow()
                     
+                    # Update content with extracted text if available
+                    if isinstance(claude_result, dict):
+                        # Extract text content from Claude's analysis
+                        extracted_text = ""
+                        if 'raw_analysis' in claude_result:
+                            extracted_text = claude_result['raw_analysis']
+                        elif 'content' in claude_result:
+                            extracted_text = claude_result['content']
+                        elif 'summary' in claude_result:
+                            extracted_text = claude_result['summary']
+                        
+                        # If we have sections, compile them
+                        if 'sections' in claude_result:
+                            sections_text = []
+                            for section in claude_result['sections']:
+                                if isinstance(section, dict):
+                                    sections_text.append(f"## {section.get('title', 'Section')}\n{section.get('content', '')}")
+                                else:
+                                    sections_text.append(str(section))
+                            if sections_text:
+                                extracted_text = '\n\n'.join(sections_text)
+                        
+                        # Update the document content if we extracted meaningful text
+                        if extracted_text and len(extracted_text) > len(doc.content):
+                            doc.content = extracted_text
+                    
                     # Extract tables and visual elements from Claude analysis
                     self._extract_structured_elements(doc, claude_result)
                     
@@ -242,6 +268,12 @@ class DocumentPipeline:
         # Read PDF file for Claude
         pdf_path = Path(doc.file_path)
         
+        # Read PDF and encode to base64
+        with open(pdf_path, 'rb') as f:
+            pdf_data = f.read()
+        import base64
+        pdf_base64 = base64.b64encode(pdf_data).decode('utf-8')
+        
         # Create messages for Claude with PDF
         messages = [{
             "role": "user",
@@ -249,8 +281,9 @@ class DocumentPipeline:
                 {
                     "type": "document",
                     "source": {
-                        "type": "file",
-                        "file_path": str(pdf_path)
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": pdf_base64
                     }
                 },
                 {

@@ -7,12 +7,14 @@ import json
 from typing import Dict, Any, List, Optional
 import pandas as pd
 from services.claude_service import ClaudeService
+from services.dataset_generator_v2 import DatasetGeneratorV2
 
 class DatasetGenerator:
     """Generate training datasets from raw data using AI"""
     
     def __init__(self):
         self.claude_service = ClaudeService()
+        self.v2_generator = DatasetGeneratorV2()  # For large-scale generation
     
     async def generate_dataset(self, 
                              input_data: pd.DataFrame, 
@@ -68,11 +70,37 @@ class DatasetGenerator:
         else:
             prompt = self._build_generic_prompt(input_data, config)
         
-        # Generate the dataset using Claude
+        # Check if we have enough content
+        content_sample = self._get_content_sample(input_data)
+        if len(content_sample) < 500 and dataset_type != "custom":
+            print(f"[DatasetGenerator] WARNING: Very little content available ({len(content_sample)} chars)")
+            # For PDFs with placeholder content, we should fail gracefully
+            if "PDF document (will be processed with Claude Vision)" in content_sample:
+                return {
+                    "error": "PDF documents need to be extracted first using document_extraction step",
+                    "success": False,
+                    "generated_df": pd.DataFrame()
+                }
+        
+        # Check if we need batch processing for large datasets
+        target_rows = config.get('target_rows', config.get('min_examples', 20))
+        print(f"[DatasetGenerator] Target rows from config: {config.get('target_rows')}, min_examples: {config.get('min_examples')}, final target_rows: {target_rows}")
+        
+        if target_rows > 200:  # Use batch processing for large datasets
+            print(f"[DatasetGenerator] Using batch processing for {target_rows} rows (threshold: 200)")
+            return await self.v2_generator.generate_dataset_parallel(
+                input_data,
+                dataset_type,
+                config
+            )
+        else:
+            print(f"[DatasetGenerator] Using single-batch generation for {target_rows} rows")
+        
+        # Generate the dataset using Claude (for smaller datasets)
         try:
             response = await self.claude_service.client.messages.create(
                 model=self.claude_service.model,
-                max_tokens=4096,
+                max_tokens=self.claude_service.max_tokens,  # Use model's max tokens
                 temperature=0.3,
                 messages=[{
                     "role": "user",
@@ -165,6 +193,31 @@ class DatasetGenerator:
         # Get sample content
         content_sample = self._get_content_sample(data)
         
+        # Increase examples for larger content
+        content_length = len(content_sample)
+        
+        # Get full content length for accurate calculation
+        full_content = self._get_content_sample(data, max_chars=100000)  # Get more content
+        full_content_length = len(full_content)
+        
+        # Use target_rows if specified, otherwise calculate based on content
+        if config.get('target_rows'):
+            config['target_examples'] = config['target_rows']
+            print(f"[DatasetGenerator] Using explicit target_rows: {config['target_rows']}")
+        else:
+            # More aggressive scaling for larger documents
+            # Roughly 1 Q&A pair per 100-150 characters of content
+            if full_content_length > 10000:
+                config['target_examples'] = max(100, full_content_length // 150)
+            elif full_content_length > 5000:
+                config['target_examples'] = max(50, full_content_length // 120)
+            elif full_content_length > 2000:
+                config['target_examples'] = max(30, full_content_length // 100)
+            else:
+                config['target_examples'] = max(20, config.get('min_examples', 20))
+            print(f"[DatasetGenerator] Full content length: {full_content_length} chars")
+            print(f"[DatasetGenerator] Calculated target_examples based on content: {config['target_examples']}")
+        
         # Check if this is a scanned document placeholder
         is_scanned = "scanned PDF document" in content_sample or "Scanned/Image-based PDF" in content_sample
         
@@ -204,7 +257,9 @@ Example:
   {{"question": "What are the main sections covered?", "answer": "The main sections include..."}}
 ]
 
-Generate EXACTLY {config.get('min_examples', 20)} Q&A pairs. Do NOT generate a summary."""
+IMPORTANT: Generate EXACTLY {config.get('target_examples', 50)} Q&A pairs. This is a requirement - you MUST generate this exact number of question-answer pairs, not less. Do NOT generate a summary.
+
+Create diverse Q&A pairs as if you're preparing a comprehensive training dataset for the document type."""
         else:
             prompt = f"""Generate question-answer pairs for training a Q&A model based on the following content.
 
@@ -232,7 +287,16 @@ Example format:
   {{"question": "How does the document describe [specific concept]?", "answer": "The document describes [concept] as [specific description from content]"}}
 ]
 
-Generate EXACTLY {config.get('min_examples', 20)} Q&A pairs. Do NOT generate a summary or any other format."""
+IMPORTANT: You MUST generate EXACTLY {config.get('target_examples', 50)} Q&A pairs. This is a strict requirement. The content is rich enough to support this many questions. Do NOT generate fewer pairs. Do NOT generate a summary or any other format.
+
+IMPORTANT: Create comprehensive Q&A pairs that cover:
+- Factual questions about specific details
+- Analytical questions about relationships and patterns
+- Inferential questions that require understanding context
+- Application questions about how concepts could be used
+- Evaluation questions about importance or implications
+
+Vary the complexity and length of both questions and answers."""
         
         return prompt
     

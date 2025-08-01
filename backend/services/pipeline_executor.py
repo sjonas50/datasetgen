@@ -19,6 +19,7 @@ from services.document_extractor import document_extractor
 from services.dataset_generator import dataset_generator
 from services.document_pipeline import document_pipeline
 from services.document import ProcessedDocument, DocumentCollection
+from services.dataset_generator_v2 import DatasetGeneratorV2
 from tasks.processing_tasks import (
     quality_validation_task,
     pii_detection_task,
@@ -79,6 +80,7 @@ class PipelineExecutor:
         except Exception as e:
             print(f"Warning: Could not initialize Claude service: {e}")
             self.claude_service = None
+        self.v2_generator = DatasetGeneratorV2()
     
     async def execute_pipeline_async(self, pipeline: Dict[str, Any], dataset: Dict[str, Any], execution_id: str):
         """Execute pipeline in background thread"""
@@ -164,39 +166,74 @@ class PipelineExecutor:
                             results[step_name] = {'status': 'no_pdfs_found'}
                     
                     elif step['type'] == 'document_extraction':
-                        # Extract content from all document types
-                        extraction_results = []
-                        for _, row in current_df.iterrows():
-                            file_path = Path(row.get('path', ''))
-                            if not file_path.exists():
-                                continue
-                                
-                            file_type = row.get('type', '')
-                            extraction = None
+                        # Check if we're using the new document pipeline format
+                        if 'document_id' in current_df.columns and hasattr(self, '_document_collection'):
+                            # Documents already loaded by document pipeline
+                            print(f"[PipelineExecutor] Using document collection for extraction")
                             
-                            try:
-                                if file_type == 'pdf':
-                                    extraction = await document_extractor.extract_from_pdf(
-                                        file_path, step.get('config', {})
-                                    )
-                                elif file_type == 'docx':
-                                    extraction = await document_extractor.extract_from_docx(
-                                        file_path, step.get('config', {})
-                                    )
-                                elif file_type == 'image':
-                                    extraction = await document_extractor.extract_from_image(
-                                        file_path, step.get('config', {})
-                                    )
+                            # Extract actual content from each document
+                            extraction_results = []
+                            for doc in self._document_collection.documents:
+                                print(f"[PipelineExecutor] Extracting content from {doc.filename}")
                                 
-                                if extraction:
-                                    extraction_results.append(extraction)
-                            except Exception as e:
-                                print(f"Error extracting from {file_path}: {e}")
-                                extraction_results.append({
-                                    'file_path': str(file_path),
-                                    'extraction_status': 'failed',
-                                    'error': str(e)
-                                })
+                                config = step.get('config', {})
+                                if config.get('use_ai_extraction', True) and doc.file_type == 'pdf':
+                                    # Use AI extraction for PDFs
+                                    result = await document_extractor.extract_from_pdf(
+                                        Path(doc.file_path), 
+                                        config
+                                    )
+                                    extraction_results.append(result)
+                                elif doc.file_type in ['png', 'jpg', 'jpeg', 'gif', 'webp']:
+                                    # Use AI extraction for images
+                                    result = await document_extractor.extract_from_image(
+                                        Path(doc.file_path),
+                                        config
+                                    )
+                                    extraction_results.append(result)
+                                else:
+                                    # For text-based documents, use existing content
+                                    extraction_results.append({
+                                        'file_path': doc.file_path,
+                                        'extraction_status': 'success',
+                                        'text_content': doc.content,
+                                        'enhanced_content': doc.content,
+                                        'metadata': doc.metadata
+                                    })
+                        else:
+                            # Legacy extraction for old format
+                            extraction_results = []
+                            for _, row in current_df.iterrows():
+                                file_path = Path(row.get('path', ''))
+                                if not file_path.exists():
+                                    continue
+                                    
+                                file_type = row.get('type', '')
+                                extraction = None
+                                
+                                try:
+                                    if file_type == 'pdf':
+                                        extraction = await document_extractor.extract_from_pdf(
+                                            file_path, step.get('config', {})
+                                        )
+                                    elif file_type == 'docx':
+                                        extraction = await document_extractor.extract_from_docx(
+                                            file_path, step.get('config', {})
+                                        )
+                                    elif file_type == 'image':
+                                        extraction = await document_extractor.extract_from_image(
+                                            file_path, step.get('config', {})
+                                        )
+                                    
+                                    if extraction:
+                                        extraction_results.append(extraction)
+                                except Exception as e:
+                                    print(f"Error extracting from {file_path}: {e}")
+                                    extraction_results.append({
+                                        'file_path': str(file_path),
+                                        'extraction_status': 'failed',
+                                        'error': str(e)
+                                    })
                         
                         # Create new dataframe with extracted content
                         if extraction_results:
@@ -308,17 +345,24 @@ class PipelineExecutor:
                     elif step['type'] == 'dataset_generation':
                         # Generate training dataset using AI
                         dataset_type = step.get('config', {}).get('dataset_type', 'qa_pairs')
+                        target_rows = step.get('config', {}).get('target_rows')
                         print(f"[PipelineExecutor] Dataset generation step starting...")
                         print(f"[PipelineExecutor] Current DataFrame shape: {current_df.shape}")
                         print(f"[PipelineExecutor] DataFrame columns: {list(current_df.columns)}")
+                        print(f"[PipelineExecutor] Target rows: {target_rows}")
                         if not current_df.empty:
                             print(f"[PipelineExecutor] First row sample: {current_df.iloc[0].to_dict()}")
                         print(f"[PipelineExecutor] Generating {dataset_type} dataset from {len(current_df)} rows...")
                         
+                        # Pass target_rows in config
+                        generation_config = step.get('config', {}).copy()
+                        if target_rows:
+                            generation_config['target_rows'] = target_rows
+                        
                         result = await dataset_generator.generate_dataset(
                             current_df,
                             dataset_type,
-                            step.get('config', {})
+                            generation_config
                         )
                         
                         print(f"[PipelineExecutor] Dataset generation result: success={result.get('success')}, rows={result.get('row_count', 0)}")
@@ -695,6 +739,327 @@ class PipelineExecutor:
         df.to_csv(output_path, index=False)
         
         return output_path
+
+    async def execute_pipeline_streaming(self, pipeline: Dict[str, Any], dataset: Dict[str, Any], 
+                                       execution_id: str, progress_callback: callable):
+        """Execute pipeline with streaming progress updates"""
+        print(f"Pipeline executor started for streaming execution: {execution_id}")
+        
+        try:
+            # Update status to running
+            execution_tracker.update_execution(execution_id, {
+                "status": "running",
+                "started_at": datetime.utcnow().isoformat(),
+            })
+            
+            # Send initial progress
+            await progress_callback({
+                "stage": "initializing",
+                "message": "Starting pipeline execution",
+                "percentage": 0
+            })
+            
+            # Load dataset files
+            await progress_callback({
+                "stage": "loading",
+                "message": "Loading dataset files...",
+                "percentage": 10
+            })
+            
+            df = await self.load_dataset_files(dataset)
+            initial_rows = len(df)
+            
+            await progress_callback({
+                "stage": "loaded",
+                "message": f"Loaded {initial_rows} rows from dataset",
+                "percentage": 20
+            })
+            
+            # Execute each step
+            results = {}
+            current_df = df.copy()
+            total_steps = len(pipeline["steps"])
+            
+            for i, step in enumerate(pipeline["steps"]):
+                step_name = f"step_{i}_{step['type']}"
+                base_percentage = 20 + (i * 60 / total_steps)
+                
+                # Update progress for step start
+                await progress_callback({
+                    "stage": "processing",
+                    "current_step": step_name,
+                    "step_type": step['type'],
+                    "message": f"Executing {step['type']}...",
+                    "percentage": base_percentage,
+                    "step_number": i + 1,
+                    "total_steps": total_steps
+                })
+                
+                execution_tracker.update_execution(execution_id, {
+                    "current_step": step_name,
+                    "progress": int(base_percentage),
+                })
+                
+                try:
+                    # Handle dataset generation with special progress tracking
+                    if step['type'] == 'dataset_generation':
+                        dataset_type = step.get('config', {}).get('dataset_type', 'qa_pairs')
+                        target_rows = step.get('config', {}).get('target_rows')
+                        
+                        # Create a sub-progress callback for dataset generation
+                        async def dataset_progress_callback(progress_data):
+                            sub_percentage = base_percentage + (progress_data.get('percentage', 0) * 60 / total_steps / 100)
+                            await progress_callback({
+                                "stage": "dataset_generation",
+                                "current_step": step_name,
+                                "step_type": step['type'],
+                                "message": f"Generating {dataset_type} dataset: {progress_data.get('rows_generated', 0)}/{progress_data.get('target_rows', target_rows)} rows",
+                                "percentage": sub_percentage,
+                                "step_number": i + 1,
+                                "total_steps": total_steps,
+                                "dataset_progress": progress_data
+                            })
+                        
+                        # Pass progress callback to dataset generator
+                        generation_config = step.get('config', {}).copy()
+                        if target_rows:
+                            generation_config['target_rows'] = target_rows
+                        
+                        # Use streaming generation if available
+                        if target_rows and target_rows > 200:
+                            result = await self.v2_generator.generate_dataset_streaming(
+                                current_df,
+                                dataset_type,
+                                generation_config,
+                                dataset_progress_callback
+                            )
+                        else:
+                            result = await dataset_generator.generate_dataset(
+                                current_df,
+                                dataset_type,
+                                generation_config
+                            )
+                        
+                        if result.get('success') and not result['generated_df'].empty:
+                            current_df = result['generated_df']
+                            results[step_name] = {
+                                'status': 'success',
+                                'dataset_type': dataset_type,
+                                'rows_generated': result.get('row_count', 0),
+                                'columns': result.get('columns', [])
+                            }
+                        else:
+                            results[step_name] = {
+                                'status': 'failed',
+                                'error': result.get('error', 'Dataset generation failed')
+                            }
+                    else:
+                        # Execute other step types using existing logic from execute_pipeline_async
+                        # Copy the execution logic but add progress callbacks
+                        
+                        # Get the original execution logic
+                        result = await self._execute_step_with_progress(
+                            step, step_name, current_df, progress_callback, 
+                            base_percentage, i, total_steps
+                        )
+                        
+                        if 'error' in result:
+                            results[step_name] = result
+                        else:
+                            if 'processed_df' in result:
+                                current_df = result['processed_df']
+                                results[step_name] = {k: v for k, v in result.items() if k != 'processed_df'}
+                            elif 'cleaned_df' in result:
+                                current_df = result['cleaned_df']
+                                results[step_name] = {k: v for k, v in result.items() if k != 'cleaned_df'}
+                            elif 'transformed_df' in result:
+                                current_df = result['transformed_df']
+                                results[step_name] = {k: v for k, v in result.items() if k != 'transformed_df'}
+                            elif 'generated_df' in result:
+                                current_df = result['generated_df']
+                                results[step_name] = {k: v for k, v in result.items() if k != 'generated_df'}
+                            else:
+                                results[step_name] = result
+                    
+                    # Update progress for step completion
+                    await progress_callback({
+                        "stage": "processing",
+                        "current_step": step_name,
+                        "message": f"Completed {step['type']}",
+                        "percentage": base_percentage + 60 / total_steps,
+                        "step_number": i + 1,
+                        "total_steps": total_steps
+                    })
+                    
+                except Exception as e:
+                    print(f"ERROR in step {step_name}: {str(e)}")
+                    results[step_name] = {"error": str(e)}
+                    await progress_callback({
+                        "stage": "error",
+                        "current_step": step_name,
+                        "message": f"Error in {step['type']}: {str(e)}",
+                        "percentage": base_percentage
+                    })
+                    raise
+            
+            # Save output
+            await progress_callback({
+                "stage": "saving",
+                "message": "Saving output dataset...",
+                "percentage": 85
+            })
+            
+            output_path = await self.save_output_dataset(current_df, pipeline, execution_id)
+            
+            # Calculate final metrics
+            metrics = {
+                "input_records": initial_rows,
+                "output_records": len(current_df),
+                "duration_seconds": 0,
+                "steps_completed": total_steps,
+                "output_path": str(output_path),
+            }
+            
+            # Update execution as completed
+            execution_tracker.update_execution(execution_id, {
+                "status": "completed",
+                "completed_at": datetime.utcnow().isoformat(),
+                "results": results,
+                "metrics": metrics,
+                "progress": 100,
+            })
+            
+            await progress_callback({
+                "stage": "complete",
+                "message": "Pipeline execution completed successfully!",
+                "percentage": 100,
+                "metrics": metrics
+            })
+            
+        except Exception as e:
+            print(f"PIPELINE EXECUTION FAILED: {str(e)}")
+            execution_tracker.update_execution(execution_id, {
+                "status": "failed",
+                "completed_at": datetime.utcnow().isoformat(),
+                "error": str(e),
+            })
+            
+            await progress_callback({
+                "stage": "failed",
+                "message": f"Pipeline execution failed: {str(e)}",
+                "percentage": -1
+            })
+            raise
+    
+    async def _execute_step_with_progress(self, step, step_name, current_df, progress_callback, 
+                                        base_percentage, step_num, total_steps):
+        """Execute a single step with progress tracking"""
+        
+        step_type = step['type']
+        step_percentage = base_percentage + 30 / total_steps
+        
+        if step_type == 'document_extraction':
+            await progress_callback({
+                "stage": "processing",
+                "message": "Extracting document content...",
+                "percentage": step_percentage
+            })
+            
+            # Copy document extraction logic from execute_pipeline_async
+            if 'document_id' in current_df.columns and hasattr(self, '_document_collection'):
+                # Documents already loaded by document pipeline
+                extraction_results = []
+                for doc in self._document_collection.documents:
+                    config = step.get('config', {})
+                    if config.get('use_ai_extraction', True) and doc.file_type == 'pdf':
+                        result = await document_extractor.extract_from_pdf(
+                            Path(doc.file_path), 
+                            config
+                        )
+                        extraction_results.append(result)
+                    elif doc.file_type in ['png', 'jpg', 'jpeg', 'gif', 'webp']:
+                        result = await document_extractor.extract_from_image(
+                            Path(doc.file_path),
+                            config
+                        )
+                        extraction_results.append(result)
+                    else:
+                        extraction_results.append({
+                            'file_path': doc.file_path,
+                            'extraction_status': 'success',
+                            'text_content': doc.content,
+                            'enhanced_content': doc.content,
+                            'metadata': doc.metadata
+                        })
+            
+            # Process extraction results
+            if extraction_results:
+                extracted_data = []
+                for result in extraction_results:
+                    if result.get('extraction_status') == 'success':
+                        data_row = {
+                            'source_file': result['file_path'],
+                            'file_type': result.get('file_type', 'unknown'),
+                            'text_content': result.get('text_content', ''),
+                            'extraction_method': 'document_extractor'
+                        }
+                        if 'enhanced_content' in result:
+                            data_row['enhanced_content'] = result['enhanced_content']
+                        extracted_data.append(data_row)
+                
+                if extracted_data:
+                    return {'processed_df': pd.DataFrame(extracted_data), 'status': 'success'}
+            
+            return {'status': 'no_documents_found'}
+            
+        elif step_type == 'quality_validation':
+            await progress_callback({
+                "stage": "processing",
+                "message": "Validating data quality...",
+                "percentage": step_percentage
+            })
+            return quality_validation_task(current_df, step['config'])
+            
+        elif step_type == 'pii_detection':
+            await progress_callback({
+                "stage": "processing",
+                "message": "Detecting PII data...",
+                "percentage": step_percentage
+            })
+            result = pii_detection_task(current_df, step['config'])
+            return {'processed_df': result['processed_df'], 'report': result['report']}
+            
+        elif step_type in ['text_cleaning', 'data_cleaning']:
+            await progress_callback({
+                "stage": "processing",
+                "message": "Cleaning data...",
+                "percentage": step_percentage
+            })
+            config = step.get('config', {}).copy()
+            if step_type == 'text_cleaning' and 'text_content' in current_df.columns:
+                config['handle_missing'] = 'fill'
+                config['text_columns'] = ['text_content', 'enhanced_content'] if 'enhanced_content' in current_df.columns else ['text_content']
+            return data_cleaning_task(current_df, config)
+            
+        elif step_type == 'outlier_detection':
+            await progress_callback({
+                "stage": "processing",
+                "message": "Detecting outliers...",
+                "percentage": step_percentage
+            })
+            return outlier_detection_task(current_df, step['config'])
+            
+        elif step_type == 'schema_validation':
+            await progress_callback({
+                "stage": "processing",
+                "message": "Validating schema...",
+                "percentage": step_percentage
+            })
+            return schema_validation_task(current_df, step['config'])
+            
+        else:
+            # For unknown step types
+            return {'status': 'skipped', 'message': f'Unknown step type: {step_type}'}
 
 # Global pipeline executor instance
 pipeline_executor = PipelineExecutor()

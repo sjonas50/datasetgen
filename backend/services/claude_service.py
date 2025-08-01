@@ -38,14 +38,14 @@ class ClaudeService:
         if self.enabled:
             self.client = AsyncAnthropic(api_key=self.api_key)
             
-            # Claude 4 models (July 2025)
+            # Claude 4 models (May 2025)
             if model_type == "opus":
-                self.model = "claude-opus-4-20250730"  # Claude Opus 4 - For complex tasks
+                self.model = "claude-opus-4-20250514"  # Claude Opus 4 - For complex tasks
                 self.max_tokens = 8192
                 self.supports_extended_thinking = True
             else:
-                self.model = "claude-sonnet-4-20250730"  # Claude Sonnet 4 - Default
-                self.max_tokens = 64000  # Sonnet 4 supports up to 64K output tokens
+                self.model = "claude-sonnet-4-20250514"  # Claude Sonnet 4 - Default
+                self.max_tokens = 8192  # Adjusted to match API limits
                 self.supports_extended_thinking = True
             
             print(f"[ClaudeService] Client initialized with model: {self.model}")
