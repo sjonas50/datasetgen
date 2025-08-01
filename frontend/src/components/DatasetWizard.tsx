@@ -94,7 +94,7 @@ export default function DatasetWizard({ dataset, onComplete, onCancel }: Dataset
   const [costEstimate, setCostEstimate] = useState<any>(null);
   const [showCostModal, setShowCostModal] = useState(false);
   const [estimatingCost, setEstimatingCost] = useState(false);
-  const [targetRows, setTargetRows] = useState<number | undefined>(undefined);
+  const [targetRows, setTargetRows] = useState<number | null>(null);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 
   const estimateCost = async () => {
@@ -176,6 +176,8 @@ export default function DatasetWizard({ dataset, onComplete, onCancel }: Dataset
               custom_instructions: customInstructions,
               auto_extract: true,
               include_all_files: true,
+              target_rows: targetRows || undefined,
+              min_examples: targetRows ? Math.min(targetRows, 50) : 50,
             }
           }
         ]
@@ -188,64 +190,149 @@ export default function DatasetWizard({ dataset, onComplete, onCancel }: Dataset
       setProgress(40);
       setStatusMessage('AI is reading and understanding your files...');
 
-      // Execute pipeline
-      const execRes = await api.post(`/api/v1/pipelines/${pipeline.id}/execute`);
-      const executionId = execRes.data.id;
-
-      // Poll for completion
-      setProgress(60);
-      setStatusMessage('AI is generating your dataset...');
-
-      let completed = false;
-      let attempts = 0;
-      const maxAttempts = 60; // 2 minutes timeout
-
-      while (!completed && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      // Use streaming for large datasets
+      if (targetRows && targetRows > 200) {
+        // Use streaming endpoint for better progress tracking
+        setProgress(40);
+        setStatusMessage('Starting dataset generation with batch processing...');
         
-        const statusRes = await api.get(`/api/v1/pipelines/${pipeline.id}/executions`);
-        const execution = statusRes.data.find((e: any) => e.id === executionId);
-        
-        if (execution) {
-          if (execution.status === 'completed') {
-            completed = true;
-            setProgress(90);
-            setStatusMessage('Finalizing your dataset...');
-            
-            // Get results
-            const resultsRes = await api.get(
-              `/api/v1/pipelines/${pipeline.id}/executions/${executionId}/results`
-            );
-            
-            // Extract the actual data from results
-            const results = resultsRes.data;
-            const processedData = {
-              pipeline_id: pipeline.id,
-              execution_id: executionId,
-              row_count: results.results?.rows || 0,
-              columns: results.results?.columns || [],
-              preview: results.results?.preview || [],
-              has_document_extraction: !!results.results?.document_extraction,
-              step_results: results.results?.step_results || {}
-            };
-            
-            setGeneratedDataset(processedData);
-            setProgress(100);
-            setStatusMessage('Dataset generated successfully!');
-          } else if (execution.status === 'failed') {
-            throw new Error(execution.error || 'Dataset generation failed');
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/pipelines/${pipeline.id}/execute/stream`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error('Failed to start streaming execution');
+        }
+
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let executionId = '';
+
+        while (reader) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const event = JSON.parse(line.slice(6));
+                
+                if (event.event === 'start') {
+                  executionId = event.execution_id;
+                } else if (event.event === 'progress') {
+                  setProgress(Math.max(40, Math.min(90, event.percentage)));
+                  setStatusMessage(event.message || 'Processing...');
+                  
+                  // Special handling for dataset generation progress
+                  if (event.dataset_progress) {
+                    const dp = event.dataset_progress;
+                    setStatusMessage(
+                      `Generating batch ${dp.batch || 0}/${dp.total_batches || 0}: ` +
+                      `${dp.rows_generated || 0}/${dp.target_rows || targetRows} rows`
+                    );
+                  }
+                } else if (event.event === 'complete') {
+                  setProgress(90);
+                  setStatusMessage('Finalizing your dataset...');
+                  
+                  // Get results
+                  const resultsRes = await api.get(
+                    `/api/v1/pipelines/${pipeline.id}/executions/${executionId}/results`
+                  );
+                  
+                  const results = resultsRes.data;
+                  const processedData = {
+                    pipeline_id: pipeline.id,
+                    execution_id: executionId,
+                    row_count: results.results?.rows || event.metrics?.output_records || 0,
+                    columns: results.results?.columns || [],
+                    preview: results.results?.preview || [],
+                    has_document_extraction: !!results.results?.document_extraction,
+                    step_results: results.results?.step_results || {}
+                  };
+                  
+                  setGeneratedDataset(processedData);
+                  setProgress(100);
+                  setStatusMessage('Dataset generated successfully!');
+                  return;
+                } else if (event.event === 'error') {
+                  throw new Error(event.error || 'Dataset generation failed');
+                }
+              } catch (e) {
+                console.error('Error parsing SSE event:', e);
+              }
+            }
           }
         }
-        
-        attempts++;
-        // Update progress gradually
-        if (progress < 80) {
-          setProgress(prev => Math.min(prev + 5, 80));
-        }
-      }
+      } else {
+        // Use regular endpoint for smaller datasets
+        const execRes = await api.post(`/api/v1/pipelines/${pipeline.id}/execute`);
+        const executionId = execRes.data.id;
 
-      if (!completed) {
-        throw new Error('Dataset generation timed out. Please try again.');
+        // Poll for completion
+        setProgress(60);
+        setStatusMessage('AI is generating your dataset...');
+
+        let completed = false;
+        let attempts = 0;
+        const maxAttempts = 300; // 10 minutes timeout for large datasets
+
+        while (!completed && attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          const statusRes = await api.get(`/api/v1/pipelines/${pipeline.id}/executions`);
+          const execution = statusRes.data.find((e: any) => e.id === executionId);
+          
+          if (execution) {
+            if (execution.status === 'completed') {
+              completed = true;
+              setProgress(90);
+              setStatusMessage('Finalizing your dataset...');
+              
+              // Get results
+              const resultsRes = await api.get(
+                `/api/v1/pipelines/${pipeline.id}/executions/${executionId}/results`
+              );
+              
+              // Extract the actual data from results
+              const results = resultsRes.data;
+              const processedData = {
+                pipeline_id: pipeline.id,
+                execution_id: executionId,
+                row_count: results.results?.rows || 0,
+                columns: results.results?.columns || [],
+                preview: results.results?.preview || [],
+                has_document_extraction: !!results.results?.document_extraction,
+                step_results: results.results?.step_results || {}
+              };
+              
+              setGeneratedDataset(processedData);
+              setProgress(100);
+              setStatusMessage('Dataset generated successfully!');
+            } else if (execution.status === 'failed') {
+              throw new Error(execution.error || 'Dataset generation failed');
+            }
+          }
+          
+          attempts++;
+          // Update progress gradually
+          if (progress < 80) {
+            setProgress(prev => Math.min(prev + 5, 80));
+          }
+        }
+
+        if (!completed) {
+          throw new Error('Dataset generation timed out. Please try again.');
+        }
       }
 
     } catch (err: any) {
@@ -446,16 +533,19 @@ export default function DatasetWizard({ dataset, onComplete, onCancel }: Dataset
                         <Text strong>Target Number of Rows:</Text>
                         <br />
                         <InputNumber
-                          min={5}
-                          max={1000}
-                          placeholder="Auto-detect (recommended)"
+                          min={10}
+                          max={10000}
+                          step={100}
+                          placeholder="Auto (20-100 based on content)"
                           value={targetRows}
-                          onChange={setTargetRows}
-                          style={{ width: 200, marginTop: 8 }}
+                          onChange={(value) => setTargetRows(value)}
+                          style={{ width: 250, marginTop: 8 }}
                         />
                         <br />
                         <Text type="secondary" style={{ fontSize: 12 }}>
-                          Leave empty to let AI determine optimal row count based on your data
+                          Leave empty for automatic scaling based on document size (typically 50-200 rows).
+                          <br />
+                          For large datasets (200+), batch processing will be used to prevent timeouts.
                         </Text>
                       </div>
                     </Space>

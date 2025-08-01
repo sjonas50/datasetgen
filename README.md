@@ -1,12 +1,13 @@
-# DatasetGen - AI-First Dataset Creation Platform
+# DatasetGen - AI-Powered Dataset Creation Platform
 
-Transform any document into high-quality ML training datasets with just a few clicks. DatasetGen uses Claude Sonnet 4 to intelligently process PDFs, Word docs, images, and more - automatically generating Q&A pairs, classification data, NER datasets, and custom formats tailored to your needs.
+Transform any document into high-quality ML training datasets with advanced AI. DatasetGen uses Claude 4 models to intelligently process PDFs, Word docs, images, and more - automatically generating comprehensive Q&A pairs, classification data, NER datasets, and custom formats tailored to your needs.
 
 ## 🚀 Key Features
 
-### 🎯 User-Friendly Dataset Generation
+### 🎯 Intelligent Dataset Generation
 - **One-Click Generation**: Upload files → Choose dataset type → Generate
 - **Smart Document Processing**: Handles scanned PDFs, images, Word docs, CSVs, and more
+- **Automatic Scaling**: Generates 50-200+ examples based on document size
 - **Multiple Dataset Types**: 
   - Q&A Pairs for chatbots and FAQ systems
   - Text Classification for sentiment analysis
@@ -14,47 +15,71 @@ Transform any document into high-quality ML training datasets with just a few cl
   - Summarization pairs for abstractive models
   - Custom formats based on your requirements
 
-### 🧠 Powered by Claude Sonnet 4
-- **Latest AI Model**: Uses Claude Sonnet 4 (claude-sonnet-4-20250514)
+### 🧠 Powered by Claude 4 Models
+- **Latest AI Models**: Uses Claude Opus 4 and Sonnet 4 (July 2025)
+- **Native PDF Support**: Direct PDF processing without conversion
 - **Vision Capabilities**: Extracts content from images and scanned documents
-- **Intelligent Generation**: Creates contextually appropriate training data
-- **High-Quality Output**: Generates diverse, realistic examples
+- **Intelligent Scaling**: Automatically adjusts output based on content richness
+- **Batch Processing**: Handles thousands of rows without timeouts
 
-### 📊 Two Interfaces
-- **Dataset Wizard**: Simple UI for non-technical users - just click and generate
-- **Pipeline Builder**: Advanced visual interface for complex workflows
-- **Real-Time Monitoring**: Track generation progress and results
+### 💰 Cost Estimation & Optimization
+- **Upfront Cost Estimates**: Know costs before processing
+- **Token Counting**: Accurate token usage predictions
+- **Multi-Document Support**: Process multiple files efficiently
+- **Batch Processing**: Automatic optimization for large datasets
+
+### 📊 Advanced Features
+- **Dataset Wizard**: Simple UI with cost estimation
+- **Pipeline Builder**: Visual workflow creation
+- **Real-Time Progress**: Streaming updates for large datasets
+- **Multi-Document Processing**: Handle entire document collections
+- **Quality Validation**: Built-in data quality checks
 
 ### 🔒 Enterprise Ready
 - **Authentication**: Secure JWT-based access control  
 - **SQLite Storage**: Persistent data storage (upgradeable to PostgreSQL)
-- **File Support**: PDF, DOCX, TXT, CSV, JSON, PNG, JPG
+- **File Support**: PDF, DOCX, TXT, CSV, JSON, PNG, JPG, MD
 - **Export Options**: Download datasets as CSV or JSON
+- **Streaming API**: Server-Sent Events for real-time progress
 
 ## 🏗️ Architecture
 
 ```
 ┌──────────────────────────────────────────────┐
 │          Frontend (Next.js)                  │
-│   • Dataset Wizard (Simple UI)               │
-│   • Pipeline Builder (Advanced)              │
-│   • File Upload & Management                 │
+│   • Dataset Wizard with Cost Estimation      │
+│   • Pipeline Builder (Visual)                │
+│   • Real-time Progress Monitoring           │
+│   • Multi-file Upload Management            │
 ├──────────────────────────────────────────────┤
 │        Backend (FastAPI)                     │
-│   • REST API                                 │
+│   • REST API + SSE Streaming                 │
 │   • Authentication (JWT)                     │
-│   • File Processing                          │
+│   • Document Pipeline Processing             │
+│   • Batch Generation System                  │
 ├──────────────────────────────────────────────┤
-│     AI Layer (Claude Sonnet 4)               │
-│   • Document Understanding                   │
-│   • Vision Processing                        │
-│   • Dataset Generation                       │
+│     AI Layer (Claude 4 Models)               │
+│   • Claude Opus 4 & Sonnet 4                 │
+│   • Native PDF Processing                    │
+│   • Vision API for Images                   │
+│   • Intelligent Content Scaling             │
 ├──────────────────────────────────────────────┤
 │         Data Storage                         │
 │   • SQLite Database                          │
-│   • Local File Storage                       │
+│   • File Storage with Caching               │
 └──────────────────────────────────────────────┘
 ```
+
+## 🌟 Recent Updates (August 2025)
+
+### Major Enhancements
+- **Claude 4 Models**: Upgraded to latest Claude Opus 4 and Sonnet 4 with 8192 token support
+- **Batch Processing**: Generate thousands of examples without timeouts
+- **Streaming Progress**: Real-time updates via Server-Sent Events
+- **Smart Scaling**: Automatically generates 1 example per 100-150 characters
+- **Cost Estimation**: Get accurate cost predictions before processing
+- **Enhanced Document Pipeline**: Unified processing for all file types
+- **Multi-Document Support**: Process entire collections efficiently
 
 ## 🚀 Quick Start
 
@@ -260,10 +285,15 @@ optimization:
 ```python
 llm_config:
   provider: "claude"
-  model: "claude-sonnet-4-20250514"
-  temperature: 0.1
-  use_extended_thinking: true
-  max_tokens: 4096
+  models:
+    default: "claude-sonnet-4-20250514"  # For general tasks
+    complex: "claude-opus-4-20250514"    # For complex reasoning
+  temperature: 0.3
+  max_tokens: 8192
+  batch_processing:
+    enabled: true
+    batch_size: 100
+    max_concurrent: 3
 ```
 
 ## 🛡️ Security Features

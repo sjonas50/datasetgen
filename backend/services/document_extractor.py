@@ -319,14 +319,67 @@ Type: Scanned/Image-based PDF requiring OCR for full text extraction"""
             # Determine media type
             suffix = file_path.suffix.lower()
             
-            # For PDFs, we need to convert to images since Claude Vision doesn't support PDFs directly
+            # Claude 4 supports native PDF processing!
             if suffix == '.pdf':
-                print(f"[DocumentExtractor] PDF detected - converting to images for Claude Vision")
-                # For now, skip Claude Vision for PDFs as we need pdf2image library
-                return {
-                    "success": False,
-                    "error": "PDF direct vision not supported - need to convert to images first"
-                }
+                print(f"[DocumentExtractor] PDF detected - using Claude 4 native PDF support")
+                
+                # Build extraction prompt
+                extraction_prompt = config.get("extraction_prompt", """Extract all text content from this PDF document. Include:
+1. All paragraphs and text sections
+2. Table data (preserve structure)
+3. Headers and subheaders with hierarchy
+4. Lists and bullet points
+5. Any important metadata, dates, or values
+6. Captions from figures or images
+
+Provide the extracted content in a structured format.""")
+                
+                try:
+                    # Use Claude's native PDF support
+                    messages = [{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "document",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "application/pdf",
+                                    "data": base64_data
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": extraction_prompt
+                            }
+                        ]
+                    }]
+                    
+                    response = await self.claude_service.client.messages.create(
+                        model=self.claude_service.model,
+                        max_tokens=self.claude_service.max_tokens,
+                        temperature=0.1,
+                        messages=messages
+                    )
+                    
+                    extracted_text = response.content[0].text
+                    print(f"[DocumentExtractor] Successfully extracted {len(extracted_text)} characters from PDF")
+                    
+                    return {
+                        "success": True,
+                        "content": extracted_text,
+                        "metadata": {
+                            "extraction_method": "claude_4_native_pdf",
+                            "model": self.claude_service.model,
+                            "content_length": len(extracted_text)
+                        }
+                    }
+                    
+                except Exception as e:
+                    print(f"[DocumentExtractor] Claude PDF extraction error: {str(e)}")
+                    return {
+                        "success": False,
+                        "error": str(e)
+                    }
             
             media_type = {
                 '.png': 'image/png',
